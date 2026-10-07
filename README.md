@@ -1,4 +1,8 @@
-# xray-rs
+<p align="left">
+  <img src="./cray.jpg" width="15%" alt="crays-logo" style="border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+</p>
+
+# Cray
 
 Кастомный прокси-туннель на Rust. Написан под себя — никаких компромиссов ради совместимости с чужими клиентами.
 
