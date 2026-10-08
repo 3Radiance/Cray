@@ -1,21 +1,21 @@
 use crate::inbound::Listener;
 use anyhow::Result;
 use std::net::SocketAddr;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener as TokioTcpListener, TcpStream};
 
-pub struct TcpInbound {
-    listener: TcpListener,
+pub struct TcpListener {
+    listener: TokioTcpListener,
 }
 
-impl TcpInbound {
-    pub async fn bind(addr: &str) -> Result<Self> {
+impl TcpListener {
+    pub async fn bind<A: tokio::net::ToSocketAddrs>(addr: A) -> Result<Self> {
         Ok(Self {
-            listener: TcpListener::bind(addr).await?,
+            listener: TokioTcpListener::bind(addr).await?,
         })
     }
 }
 
-impl Listener for TcpInbound {
+impl Listener for TcpListener {
     type Stream = TcpStream;
 
     async fn accept(&self) -> Result<(TcpStream, SocketAddr)> {
