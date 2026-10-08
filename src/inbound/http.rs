@@ -1,44 +1,64 @@
-use crate::ConnectionData;
+use crate::ConnectRequest;
+use crate::inbound::{ConnectResult, Inbound};
 use anyhow::{Result, anyhow};
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 
-async fn http_handle(mut client: TcpStream) -> Result<(TcpStream, ConnectionData)> {
-    let mut buff = Vec::new();
-    let mut buf = [0u8; 1024];
-    let mut http: ConnectionData;
-    loop {
-        let n = client.read(&mut buf).await?;
-        if n == 0 {
-            return Err(anyhow!("connection closed"));
-        }
-        buff.extend_from_slice(&buf[..n]);
+pub struct HttpRequest;
 
-        if buff.len() > MAX_HEADER_BYTES {
-            return Err(anyhow!("request headers too large"));
-        }
+impl Inbound for HttpRequest {
+    async fn handshake<S>(&self, client: &mut S) -> Result<ConnectRequest>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send,
+    {
+        let mut buff = Vec::with_capacity(1024);
+        let mut tmp = [0u8; 1024];
 
-        match http_parse(&buff) {
-            Ok(Some(data)) => {
-                http = data;
-                break;
+        loop {
+            let n = client.read(&mut tmp).await?;
+            if n == 0 {
+                return Err(anyhow!("connection closed"));
             }
-            Ok(None) => continue,
-            Err(e) => return Err(e),
+            buff.extend_from_slice(&tmp[..n]);
+
+            if buff.len() > MAX_HEADER_BYTES {
+                return Err(anyhow!("request headers too large"));
+            }
+
+            if let Some((req, used)) = parse(&buff)? {
+                if used != buff.len() {
+                    return Err(anyhow!("unexpected data after CONNECT"));
+                }
+                return Ok(req);
+            }
         }
     }
 
-    Ok((client, http))
+    async fn reply<S>(&self, client: &mut S, ok: ConnectResult) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send,
+    {
+        let resp: &[u8] = match ok {
+            ConnectResult::Ok => b"HTTP/1.1 200 Connection Established\r\n\r\n",
+            ConnectResult::Timeout => b"HTTP/1.1 504 Gateway Timeout\r\n\r\n",
+            _ => b"HTTP/1.1 502 Bad Gateway\r\n\r\n",
+        };
+        client.write_all(resp).await?;
+        client.flush().await?;
+        Ok(())
+    }
 }
 
-fn http_parse(buff: &[u8]) -> Result<Option<ConnectionData>> {
+fn parse(buff: &[u8]) -> Result<Option<(ConnectRequest, usize)>> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
 
     match req.parse(buff) {
-        Ok(httparse::Status::Complete(_)) => {
+        Ok(httparse::Status::Complete(used)) => {
+            if req.method != Some("CONNECT") {
+                return Err(anyhow!("only CONNECT is supported"));
+            }
             let host = req
                 .headers
                 .iter()
@@ -47,14 +67,19 @@ fn http_parse(buff: &[u8]) -> Result<Option<ConnectionData>> {
             let host = std::str::from_utf8(host.value)?.trim();
 
             let (addr, port) = match host.rsplit_once(':') {
-                Some((a, p)) if !p.contains(']') => (a, p.parse::<u16>()?),
+                Some((a, p)) if !p.contains(']') => {
+                    (a, p.parse::<u16>().map_err(|_| anyhow!("bad port"))?)
+                }
                 _ => (host, 443),
             };
 
-            Ok(Some(ConnectionData {
-                addr: addr.to_string(),
-                port,
-            }))
+            Ok(Some((
+                ConnectRequest {
+                    addr: addr.trim_matches(['[', ']']).to_string(),
+                    port,
+                },
+                used,
+            )))
         }
         Ok(httparse::Status::Partial) => Ok(None),
         Err(e) => Err(anyhow!("failed to parse request: {:?}", e)),
