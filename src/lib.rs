@@ -6,7 +6,7 @@ pub mod outbound;
 pub mod protocol;
 pub mod transport;
 
-pub struct ConnectionData {
+pub struct ConnectRequest {
     pub addr: String,
     pub port: u16,
 }

@@ -22,7 +22,7 @@
 ### Конвейерный транспорт
 Транспортные слои собираются в цепочку по конфигу:
 ```
-[tcp | udp] → [tls | кастомный] → [http | http2 | http3 |кастомный]
+[tcp | udp] → [tls | кастомный] → [http | http2 | http3 | кастомный]
 ```
 Добавить свой транспортный слой = написать трейт + указать в конфиге.
 
@@ -39,7 +39,7 @@
         ↓
    inbound/          SOCKS5 / HTTP CONNECT → ConnectRequest
         ↓
-   transport/        tcp → tls → http | http2 | кастомный
+   transport/        tcp | udp → tls | кастомный → http | http2 | http3 | кастомный
         ↓
    protocol/         application-level хендшейк, auth → ConnectRequest
         ↓
@@ -61,11 +61,11 @@ browser_socket  ←→  tunnel_stream  ←→  remote_socket
 |---|---|
 | [`inbound/`](src/inbound/README.md) | Локальный вход: SOCKS5, HTTP CONNECT |
 | [`transport/`](src/transport/README.md) | Конвейер: tcp → tls → http/http2 |
-| [`protocol/`](src/protocol/readme.md) | Application-level хендшейк и auth |
+| [`protocol/`](src/protocol/README.md) | Application-level хендшейк и auth |
 | [`outbound/`](src/outbound/README.md) | Коннект до назначения |
 | [`auth/`](src/auth/README.md) | Закрытый реестр верификаторов/генераторов |
 | [`config/`](src/config/README.md) | Оркестратор, DSL-валидатор |
-| [`fingerprint/`](src/fingerprint/readme.md) | TLS/HTTP2/TCP профили |
+| [`fingerprint/`](src/fingerprint/README.md) | TLS/HTTP2/TCP профили |
 
 ---
 
