@@ -17,6 +17,7 @@ impl TcpListener {
 
 impl Listener for TcpListener {
     type Stream = TcpStream;
+    type Addr = SocketAddr;
 
     async fn accept(&self) -> Result<(TcpStream, SocketAddr)> {
         let (stream, peer) = self.listener.accept().await?;

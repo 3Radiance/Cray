@@ -9,7 +9,6 @@ pub mod transport;
 
 use anyhow::Result;
 use std::future::Future;
-use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct ConnectRequest {
@@ -27,6 +26,7 @@ pub enum ConnectResult {
 
 pub trait Listener: Send + Sync {
     type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
+    type Addr: Send + 'static;
 
-    fn accept(&self) -> impl Future<Output = Result<(Self::Stream, SocketAddr)>> + Send;
+    fn accept(&self) -> impl Future<Output = Result<(Self::Stream, Self::Addr)>> + Send;
 }
