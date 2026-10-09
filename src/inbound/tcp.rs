@@ -1,4 +1,4 @@
-use crate::inbound::Listener;
+use crate::Listener;
 use anyhow::Result;
 use std::net::SocketAddr;
 use tokio::net::{TcpListener as TokioTcpListener, TcpStream};

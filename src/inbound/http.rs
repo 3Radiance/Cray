@@ -1,5 +1,5 @@
-use crate::ConnectRequest;
-use crate::inbound::{ConnectResult, Inbound};
+use crate::inbound::Inbound;
+use crate::{ConnectRequest, ConnectResult};
 use anyhow::{Result, anyhow};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -70,7 +70,7 @@ fn parse(buff: &[u8]) -> Result<Option<(ConnectRequest, usize)>> {
                 Some((a, p)) if !p.contains(']') => {
                     (a, p.parse::<u16>().map_err(|_| anyhow!("bad port"))?)
                 }
-                _ => (host, 443),
+                _ => return Err(anyhow!("failed split Host header: {}", host)),
             };
 
             Ok(Some((

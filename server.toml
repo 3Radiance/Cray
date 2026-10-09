@@ -1,0 +1,15 @@
+role = "server"
+
+[[inbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:8080"
+
+[[inbound.layers]]
+type = "http"
+
+[[inbound.layers]]
+type = "tsf"
+uuid = "..."
+
+[[outbound.layers]]
+type = "tcp"                 # direct
