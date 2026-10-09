@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub mod http;
+pub mod http_connect;
 pub mod tcp;
 pub mod unix;
 
