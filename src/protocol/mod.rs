@@ -1,21 +1,21 @@
+use crate::{ConnectRequest, outbound::Outbound};
 use anyhow::Result;
-use bytes::BytesMut;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub mod test;
-
 pub trait Protocol: Send + Sync {
-    fn wrap(&mut self, plain: &[u8]) -> Result<Self>
-    where
-        Self: Sized;
-
-    fn unwrap(&mut self, inp: &mut BytesMut) -> Result<Self>
-    where
-        Self: Sized;
-
-    fn tunnel<C, U>(&mut self, client: C, upstream: U) -> impl Future<Output = Result<()>> + Send
+    fn client<C, W>(
+        &mut self,
+        plain: C,
+        wire: W,
+        t: &ConnectRequest,
+    ) -> impl Future<Output = Result<()>> + Send
     where
         C: AsyncRead + AsyncWrite + Unpin + Send,
-        U: AsyncRead + AsyncWrite + Unpin + Send;
+        W: AsyncRead + AsyncWrite + Unpin + Send;
+
+    fn server<W, D>(&mut self, wire: W, dialer: &D) -> impl Future<Output = Result<()>> + Send
+    where
+        W: AsyncRead + AsyncWrite + Unpin + Send,
+        D: Outbound;
 }
