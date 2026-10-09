@@ -1,0 +1,25 @@
+role = "client"
+
+[[inbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:10808"
+
+[[inbound.layers]]
+type = "http_connect"
+
+[[outbound.layers]]
+type = "tcp"
+addr = "example.com:443"
+
+[[outbound.layers]]
+type = "tls"
+sni = "example.com"
+
+[[outbound.layers]]
+type = "http2"
+path = "/path"
+host = "example.com"
+
+[[outbound.layers]]
+type = "tsf"
+uuid = "..."

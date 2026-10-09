@@ -1,7 +1,6 @@
-use crate::ConnectRequest;
+use crate::{ConnectRequest, ConnectResult};
 use anyhow::Result;
 use std::future::Future;
-use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod http;
@@ -19,18 +18,4 @@ pub trait Inbound: Send + Sync {
     ) -> impl Future<Output = Result<()>> + Send
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static;
-}
-
-pub trait Listener: Send + Sync {
-    type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
-
-    fn accept(&self) -> impl Future<Output = Result<(Self::Stream, SocketAddr)>> + Send;
-}
-
-pub enum ConnectResult {
-    Ok,
-    HostUnreachable,
-    ConnectionRefused,
-    Timeout,
-    Other,
 }
