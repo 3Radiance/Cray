@@ -1,0 +1,29 @@
+use crate::Listener;
+use anyhow::Result;
+use tokio::net::{UnixListener as TokioUnixListener, UnixStream, unix::SocketAddr};
+
+pub struct UnixListener {
+    listener: TokioUnixListener,
+}
+
+impl UnixListener {
+    pub fn bind<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+        Ok(Self {
+            listener: TokioUnixListener::bind(path)?,
+        })
+    }
+}
+
+impl Listener for UnixListener {
+    type Stream = UnixStream;
+    type Addr = SocketAddr;
+
+    async fn accept(&self) -> Result<(UnixStream, SocketAddr)> {
+        let (stream, peer) = self.listener.accept().await?;
+        Ok((stream, peer))
+    }
+}

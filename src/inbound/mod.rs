@@ -5,6 +5,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod http;
 pub mod tcp;
+pub mod unix;
 
 pub trait Inbound: Send + Sync {
     fn handshake<S>(&self, client: &mut S) -> impl Future<Output = Result<ConnectRequest>> + Send
