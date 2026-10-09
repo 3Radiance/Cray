@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::future::Future;
+use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod http;
@@ -16,7 +17,7 @@ pub trait Transport: Send + Sync {
         ctx: &mut Self::Context,
     ) -> impl Future<Output = Result<Self::Stream>> + Send
     where
-        W: AsyncRead + AsyncWrite + Unpin + Send;
+        W: AsyncRead + AsyncWrite + Unpin + Send + 'static;
 
     fn server<P>(
         &mut self,
@@ -24,5 +25,10 @@ pub trait Transport: Send + Sync {
         ctx: &mut Self::Context,
     ) -> impl Future<Output = Result<Self::Stream>> + Send
     where
-        P: AsyncRead + AsyncWrite + Unpin + Send;
+        P: AsyncRead + AsyncWrite + Unpin + Send + 'static;
 }
+
+pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncReadWrite for T {}
+
+pub type BoxedStream = Pin<Box<dyn AsyncReadWrite + 'static>>;

@@ -4,6 +4,8 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)]
 pub struct TlsConfig {
+    pub cert: Option<String>,
+    pub key: Option<String>,
     pub cipher_suites: Option<Vec<String>>,
     pub alpn: Option<Vec<String>>,
     pub curves: Option<Vec<String>>,

@@ -22,7 +22,7 @@ impl Listener for UnixListener {
     type Stream = UnixStream;
     type Addr = SocketAddr;
 
-    async fn accept(&self) -> Result<(UnixStream, SocketAddr)> {
+    async fn accept(&self) -> Result<(Self::Stream, Self::Addr)> {
         let (stream, peer) = self.listener.accept().await?;
         Ok((stream, peer))
     }
