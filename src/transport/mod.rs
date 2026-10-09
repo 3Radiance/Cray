@@ -4,7 +4,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod http;
 pub mod http2;
-pub mod tcp;
 pub mod tls;
 
 pub trait Transport: Send + Sync {
