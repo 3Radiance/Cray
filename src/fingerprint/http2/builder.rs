@@ -4,8 +4,14 @@ use anyhow::Result;
 use http2::frame::{Priorities, PseudoOrder, SettingsOrder};
 
 pub async fn http2_builder() -> Result<http2::client::Builder> {
+    let loader = get_config();
     let mut builder = http2::client::Builder::new();
-    let config = &get_config().http2;
+
+    let config = if let Some(config) = &loader.http2 {
+        config
+    } else {
+        return Err(anyhow::anyhow!("HTTP/2 configuration not found"));
+    };
 
     let mut pseudo_builder = PseudoOrder::builder();
     let pseudo_headers_order = config.parse_pseudo_headers()?;

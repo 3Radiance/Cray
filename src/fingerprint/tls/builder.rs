@@ -1,15 +1,26 @@
 use crate::config::loader::get_config;
 use crate::config::{http2::Http2Config, tls::TlsConfig};
-use crate::fingerprint::tls::compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor};
+use crate::fingerprint::tls::{
+    cert::CertPair,
+    compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor},
+};
 use anyhow::Result;
-use btls::ssl::{AlpnError, Ssl, SslConnector, SslContextBuilder, SslMethod, SslOptions};
+use btls::ssl::{
+    AlpnError, Ssl, SslAcceptor, SslConnector, SslContextBuilder, SslMethod, SslOptions,
+};
 use btls_sys::SSL_add_application_settings;
 use foreign_types_shared::ForeignType;
 
 pub async fn tls_builder() -> Result<SslConnector> {
+    let loader = get_config();
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     let mut store_builder = btls::x509::store::X509StoreBuilder::new()?;
-    let tls = &get_config().tls;
+
+    let tls = if let Some(tls) = &loader.tls {
+        tls
+    } else {
+        return Err(anyhow::anyhow!("TLS configuration not found"));
+    };
 
     for cert_der in chromium_roots::TLS_SERVER_ROOT_CERTS {
         if let Ok(cert) = btls::x509::X509::from_der(cert_der) {
@@ -38,7 +49,6 @@ pub async fn tls_builder() -> Result<SslConnector> {
 
     Ok(connector)
 }
-
 pub fn set_alpn_select_callback(builder: &mut SslContextBuilder, alpn_bytes: Vec<u8>) {
     builder.set_alpn_select_callback(move |_ssl, client_protos| {
         let mut client_cursor = client_protos;
@@ -208,4 +218,22 @@ pub fn set_delegated_credentials(builder: &mut SslContextBuilder, tls: &TlsConfi
             .map_err(|e| anyhow::anyhow!("[TLS] Failed to set delegated credentials: {e}"))?;
     }
     Ok(())
+}
+
+pub fn create_ssl_acceptor(ca: &CertPair, alpn: Vec<u8>) -> Result<SslAcceptor> {
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
+
+    set_alpn_select_callback(&mut builder, alpn.clone());
+
+    if let Some(leaf) = ca.chain.first() {
+        builder.set_certificate(leaf)?;
+    }
+
+    for cert in ca.chain.iter().skip(1) {
+        builder.add_extra_chain_cert(cert.clone())?;
+    }
+
+    builder.set_private_key(&ca.key)?;
+    builder.check_private_key()?;
+    Ok(builder.build())
 }
