@@ -1,0 +1,164 @@
+use std::future::Future;
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll, ready};
+
+use crate::config::loader::get_config;
+use crate::fingerprint::http2::builder::http2_builder;
+use crate::transport::{BoxedStream, ChunkRx, ChunkStream, ChunkTx, Incoming, Transport};
+use anyhow::{Result, anyhow};
+use bytes::Bytes;
+use http::{HeaderMap, Request, Response};
+use http2::client::ResponseFuture;
+use http2::{RecvStream, SendStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc;
+use tokio::time::{Duration, timeout};
+
+pub struct H2 {
+    method: http::Method,
+    authority: String,
+    path: String,
+}
+
+impl Transport for H2 {
+    type Stream = BoxedStream;
+    type Incoming = mpsc::Receiver<BoxedStream>;
+    type Context = String;
+
+    async fn client<W>(&mut self, wire: W, _ctx: &mut Self::Context) -> Result<Self::Stream>
+    where
+        W: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let builder = http2_builder().await?;
+        let loader = &get_config();
+        let http2 = if let Some(h2) = &loader.http2 {
+            h2
+        } else {
+            return Err(anyhow!("HTTP/2 configuration not found"));
+        };
+
+        let (send_req, conn) = timeout(Duration::from_secs(5), builder.handshake::<_, Bytes>(wire))
+            .await
+            .map_err(|_| anyhow!("h2 handshake timeout"))??;
+
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let mut req = Request::builder()
+            .method(self.method.clone())
+            .uri(format!("https://{}{}", self.authority, self.path));
+        for (k, v) in http2.apply_http_headers(&HeaderMap::new())? {
+            req = req.header(k, v);
+        }
+
+        let mut send_req = send_req.ready().await?;
+        let (resp_fut, send_stream) = send_req.send_request(req.body(())?, false)?;
+        drop(send_req);
+
+        Ok(Box::pin(ChunkStream::new(
+            H2Rx::Pending(resp_fut),
+            H2Tx(send_stream),
+        )))
+    }
+
+    async fn server<P>(&mut self, plain: P, _ctx: &mut Self::Context) -> Result<Self::Incoming>
+    where
+        P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let mut conn = timeout(Duration::from_secs(5), http2::server::handshake(plain))
+            .await
+            .map_err(|_| anyhow!("h2 handshake timeout"))??;
+
+        let (tx, rx) = mpsc::channel(64);
+        let (method, path) = (self.method.clone(), self.path.clone());
+
+        tokio::spawn(async move {
+            while let Some(res) = conn.accept().await {
+                let Ok((req, mut respond)) = res else { break };
+
+                if req.method() != method || req.uri().path() != path {
+                    let r = Response::builder().status(404).body(()).unwrap();
+                    let _ = respond.send_response(r, true);
+                    continue;
+                }
+
+                let r = Response::builder().status(200).body(()).unwrap();
+                let Ok(send) = respond.send_response(r, false) else {
+                    continue;
+                };
+
+                let stream: BoxedStream =
+                    Box::pin(ChunkStream::new(H2Rx::Body(req.into_body()), H2Tx(send)));
+                if tx.send(stream).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(rx)
+    }
+}
+
+enum H2Rx {
+    Pending(ResponseFuture),
+    Body(RecvStream),
+    Done,
+}
+
+impl ChunkRx for H2Rx {
+    fn poll_chunk(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Option<Bytes>>> {
+        loop {
+            match self {
+                H2Rx::Pending(fut) => {
+                    let resp = ready!(Pin::new(fut).poll(cx)).map_err(io::Error::other)?;
+                    if !resp.status().is_success() {
+                        return Poll::Ready(Err(io::Error::other(format!(
+                            "status {}",
+                            resp.status()
+                        ))));
+                    }
+                    *self = H2Rx::Body(resp.into_body());
+                }
+                H2Rx::Body(body) => match ready!(body.poll_data(cx)) {
+                    Some(Ok(chunk)) => {
+                        let _ = body.flow_control().release_capacity(chunk.len());
+                        return Poll::Ready(Ok(Some(chunk)));
+                    }
+                    Some(Err(e)) => return Poll::Ready(Err(io::Error::other(e))),
+                    None => {
+                        *self = H2Rx::Done;
+                        return Poll::Ready(Ok(None));
+                    }
+                },
+                H2Rx::Done => return Poll::Ready(Ok(None)),
+            }
+        }
+    }
+}
+
+struct H2Tx(SendStream<Bytes>);
+
+impl ChunkTx for H2Tx {
+    fn poll_send(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.0.reserve_capacity(buf.len());
+        match ready!(self.0.poll_capacity(cx)) {
+            None => Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
+            Some(Err(e)) => Poll::Ready(Err(io::Error::other(e))),
+            Some(Ok(n)) => {
+                let n = n.min(buf.len());
+                self.0
+                    .send_data(Bytes::copy_from_slice(&buf[..n]), false)
+                    .map_err(io::Error::other)?;
+                Poll::Ready(Ok(n))
+            }
+        }
+    }
+    fn poll_finish(&mut self, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.0
+            .send_data(Bytes::new(), true)
+            .map_err(io::Error::other)?;
+        Poll::Ready(Ok(()))
+    }
+}
