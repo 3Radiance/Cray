@@ -3,6 +3,8 @@ use anyhow::Result;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+pub mod tsf;
+
 pub trait Protocol: Send + Sync {
     type Context;
     type Outcome;
@@ -15,8 +17,8 @@ pub trait Protocol: Send + Sync {
         ctx: &mut Self::Context,
     ) -> impl Future<Output = Result<Self::Outcome>> + Send
     where
-        C: AsyncRead + AsyncWrite + Unpin + Send,
-        W: AsyncRead + AsyncWrite + Unpin + Send;
+        C: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+        W: AsyncRead + AsyncWrite + Unpin + Send + Sync;
 
     fn server<W>(
         &mut self,
@@ -24,5 +26,5 @@ pub trait Protocol: Send + Sync {
         ctx: &mut Self::Context,
     ) -> impl Future<Output = Result<Self::Outcome>> + Send
     where
-        W: AsyncRead + AsyncWrite + Unpin + Send;
+        W: AsyncRead + AsyncWrite + Unpin + Send + Sync;
 }

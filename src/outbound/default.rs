@@ -2,8 +2,8 @@ use crate::{ConnectRequest, outbound::Outbound};
 use anyhow::Result;
 use tokio::net::TcpStream;
 
-pub struct Default;
-impl Outbound for Default {
+pub struct DefaultOut;
+impl Outbound for DefaultOut {
     type Stream = TcpStream;
     type Context = ConnectRequest;
 
