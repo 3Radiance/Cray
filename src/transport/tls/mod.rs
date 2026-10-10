@@ -1,6 +1,6 @@
 use crate::config::loader::{get_ca, get_config};
 use crate::fingerprint::tls::builder::{create_ssl_acceptor, set_alps, tls_builder};
-use crate::transport::{BoxedStream, Transport};
+use crate::transport::{BoxedStream, Incoming, Once, Transport};
 use anyhow::Result;
 use btls::ssl::Ssl;
 use std::pin::Pin;
@@ -11,6 +11,7 @@ use tokio_btls::SslStream;
 pub struct Tls;
 impl Transport for Tls {
     type Stream = SslStream<BoxedStream>;
+    type Incoming = Once<SslStream<BoxedStream>>;
     type Context = String;
 
     async fn client<W>(&mut self, wire: W, sni: &mut Self::Context) -> Result<Self::Stream>
@@ -39,7 +40,7 @@ impl Transport for Tls {
         Ok(remote)
     }
 
-    async fn server<P>(&mut self, plain: P, ctx: &mut Self::Context) -> Result<Self::Stream>
+    async fn server<P>(&mut self, plain: P, ctx: &mut Self::Context) -> Result<Self::Incoming>
     where
         P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -63,6 +64,6 @@ impl Transport for Tls {
             return Err(e.into());
         }
 
-        Ok(tls_stream)
+        Ok(Once::new(tls_stream))
     }
 }
