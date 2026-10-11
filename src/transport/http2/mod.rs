@@ -5,7 +5,7 @@ use std::task::{Context, Poll, ready};
 
 use crate::config::loader::get_config;
 use crate::fingerprint::http2::builder::http2_builder;
-use crate::transport::{BoxedStream, ChunkRx, ChunkStream, ChunkTx, Incoming, Transport};
+use crate::transport::{BoxedStream, ChunkRx, ChunkStream, ChunkTx, Transport};
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use http::{HeaderMap, Request, Response};
@@ -16,9 +16,9 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
 
 pub struct H2 {
-    method: http::Method,
-    authority: String,
-    path: String,
+    pub method: http::Method,
+    pub authority: String,
+    pub path: String,
 }
 
 impl Transport for H2 {

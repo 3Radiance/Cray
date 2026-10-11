@@ -27,12 +27,16 @@ pub enum LayerConfig {
     Http2 {
         path: Option<String>,
         host: Option<String>,
+        method: Option<String>,
     },
     Tsf {
-        uuid: Option<String>,
+        magic: Option<u16>,
     },
     Tls {
         sni: Option<String>,
+    },
+    Unix {
+        addr: Option<String>,
     },
 }
 #[derive(Debug, Deserialize, Clone)]

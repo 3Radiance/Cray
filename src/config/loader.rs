@@ -1,5 +1,6 @@
 use crate::config::appconfig::AppConfig;
 use crate::fingerprint::tls::cert::CertPair;
+use crate::log_tag;
 use anyhow::Result;
 use std::sync::OnceLock;
 
@@ -8,24 +9,35 @@ pub static CA: OnceLock<CertPair> = OnceLock::new();
 
 pub fn load(path: &str) -> Result<()> {
     let config = AppConfig::load(path)?;
-    let ca = CertPair::load(
-        config
-            .tls
-            .as_ref()
-            .expect("TLS config not found")
-            .cert
-            .as_ref()
-            .expect("Cert not found"),
-        config
-            .tls
-            .as_ref()
-            .expect("TLS config not found")
-            .key
-            .as_ref()
-            .expect("Key not found"),
-    )?;
-    CA.set(ca)
-        .map_err(|_| anyhow::anyhow!("CA already loaded"))?;
+    let ca = if let Some(tls_config) = config.tls.as_ref() {
+        if let (Some(cert_path), Some(key_path)) =
+            (tls_config.cert.as_ref(), tls_config.key.as_ref())
+        {
+            match CertPair::load(cert_path, key_path) {
+                Ok(pair) => Some(pair),
+                Err(e) => {
+                    log_tag!(warn, "TLS", "Failed to load certificates: {}", e);
+                    None
+                }
+            }
+        } else {
+            log_tag!(warn, "TLS", "Cert or key path missing in TLS config");
+            None
+        }
+    } else {
+        log_tag!(
+            warn,
+            "TLS",
+            "TLS config not found, skipping certificate loading"
+        );
+        None
+    };
+
+    if let Some(caa) = ca {
+        CA.set(caa)
+            .map_err(|_| anyhow::anyhow!("CA already loaded"))?;
+    }
+
     CONFIG
         .set(config)
         .map_err(|_| anyhow::anyhow!("Config already loaded"))

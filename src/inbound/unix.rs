@@ -2,11 +2,11 @@ use crate::Listener;
 use anyhow::Result;
 use tokio::net::{UnixListener as TokioUnixListener, UnixStream, unix::SocketAddr};
 
-pub struct UnixListener {
+pub struct Unix {
     listener: TokioUnixListener,
 }
 
-impl UnixListener {
+impl Unix {
     pub fn bind<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         if path.exists() {
@@ -18,7 +18,7 @@ impl UnixListener {
     }
 }
 
-impl Listener for UnixListener {
+impl Listener for Unix {
     type Stream = UnixStream;
     type Addr = SocketAddr;
 
