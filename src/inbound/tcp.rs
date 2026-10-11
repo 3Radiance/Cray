@@ -3,11 +3,11 @@ use anyhow::Result;
 use std::net::SocketAddr;
 use tokio::net::{TcpListener as TokioTcpListener, TcpStream};
 
-pub struct TcpListener {
+pub struct Tcp {
     listener: TokioTcpListener,
 }
 
-impl TcpListener {
+impl Tcp {
     pub async fn bind<A: tokio::net::ToSocketAddrs>(addr: A) -> Result<Self> {
         Ok(Self {
             listener: TokioTcpListener::bind(addr).await?,
@@ -15,7 +15,7 @@ impl TcpListener {
     }
 }
 
-impl Listener for TcpListener {
+impl Listener for Tcp {
     type Stream = TcpStream;
     type Addr = SocketAddr;
 

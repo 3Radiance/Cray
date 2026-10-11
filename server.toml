@@ -2,14 +2,18 @@ role = "server"
 
 [[inbound.layers]]
 type = "tcp"
-addr = "127.0.0.1:8080"
+addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
-type = "http2"
+type = "tls"
 
 [[inbound.layers]]
 type = "tsf"
-uuid = "..."
+magic = 432
 
 [[outbound.layers]]
 type = "tcp"                 # direct
+
+[tls]
+cert = "/home/radiance-root/Games/fullchain.pem"
+key = "/home/radiance-root/Games/privkey.key"

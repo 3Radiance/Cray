@@ -1,6 +1,6 @@
 use crate::config::loader::{get_ca, get_config};
 use crate::fingerprint::tls::builder::{create_ssl_acceptor, set_alps, tls_builder};
-use crate::transport::{BoxedStream, Incoming, Once, Transport};
+use crate::transport::{BoxedStream, Once, Transport};
 use anyhow::Result;
 use btls::ssl::Ssl;
 use std::pin::Pin;
@@ -16,7 +16,7 @@ impl Transport for Tls {
 
     async fn client<W>(&mut self, wire: W, sni: &mut Self::Context) -> Result<Self::Stream>
     where
-        W: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+        W: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     {
         let loader = get_config();
         let http2 = if let Some(http2) = &loader.http2 {
@@ -40,9 +40,9 @@ impl Transport for Tls {
         Ok(remote)
     }
 
-    async fn server<P>(&mut self, plain: P, ctx: &mut Self::Context) -> Result<Self::Incoming>
+    async fn server<P>(&mut self, plain: P, _ctx: &mut Self::Context) -> Result<Self::Incoming>
     where
-        P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+        P: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     {
         let loader = get_config();
         let ca = get_ca();

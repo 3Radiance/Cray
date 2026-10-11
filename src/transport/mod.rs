@@ -22,7 +22,7 @@ pub trait Transport: Send + Sync {
         ctx: &mut Self::Context,
     ) -> impl Future<Output = Result<Self::Stream>> + Send
     where
-        W: AsyncRead + AsyncWrite + Unpin + Send + 'static;
+        W: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
 
     fn server<P>(
         &mut self,
@@ -30,13 +30,13 @@ pub trait Transport: Send + Sync {
         ctx: &mut Self::Context,
     ) -> impl Future<Output = Result<Self::Incoming>> + Send
     where
-        P: AsyncRead + AsyncWrite + Unpin + Send + 'static;
+        P: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
 }
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncReadWrite for T {}
 
-pub type BoxedStream = Pin<Box<dyn AsyncReadWrite + 'static>>;
+pub type BoxedStream = Pin<Box<dyn AsyncReadWrite + Send + Sync + 'static>>;
 
 pub trait ChunkRx: Unpin + Send {
     fn poll_chunk(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Option<Bytes>>>;

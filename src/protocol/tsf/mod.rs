@@ -2,24 +2,17 @@ use crate::outbound::Outbound;
 use crate::outbound::default::DefaultOut;
 
 use anyhow::Result;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::ConnectRequest;
 use crate::protocol::Protocol;
 
-pub struct tsf {
-    len_packet: u32,
-    magic: u16,
-    addr_type: u16,
-    addr_len: u16,
-    addr: BytesMut,
-    port: u16,
-    payload_len: u32,
-    payload: BytesMut,
+pub struct Tsf {
+    pub magic: u16,
 }
 
-impl Protocol for tsf {
+impl Protocol for Tsf {
     type Context = ();
     type Outcome = ();
 
@@ -28,7 +21,7 @@ impl Protocol for tsf {
         plain: C,
         wire: W,
         t: &ConnectRequest,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Result<Self::Outcome>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + Sync,
@@ -79,7 +72,7 @@ impl Protocol for tsf {
         Ok(())
     }
 
-    async fn server<W>(&mut self, mut wire: W, ctx: &mut Self::Context) -> Result<Self::Outcome>
+    async fn server<W>(&mut self, mut wire: W, _ctx: &mut Self::Context) -> Result<Self::Outcome>
     where
         W: AsyncRead + AsyncWrite + Unpin + Send,
     {

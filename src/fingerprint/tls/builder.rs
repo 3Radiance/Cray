@@ -160,51 +160,67 @@ pub fn set_cert_compression(builder: &mut SslContextBuilder, tls: &TlsConfig) ->
 }
 
 pub fn set_grease(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    builder.set_grease_enabled(tls.grease_enabled);
+    if let Some(grease) = &tls.grease_enabled {
+        builder.set_grease_enabled(*grease);
+    } else {
+        builder.set_grease_enabled(false);
+    }
 }
 
 pub fn set_permute_extensions(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    builder.set_permute_extensions(tls.permute_extensions);
+    if let Some(permute) = &tls.permute_extensions {
+        builder.set_permute_extensions(*permute);
+    } else {
+        builder.set_permute_extensions(false);
+    }
 }
 
 pub fn set_status_request(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    if tls.status_request {
-        builder.enable_ocsp_stapling();
+    if let Some(sts) = &tls.status_request {
+        if *sts {
+            builder.enable_ocsp_stapling();
+        }
     }
 }
 
 pub fn set_signed_certificate_timestamp(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    if tls.signed_certificate_timestamp {
-        builder.enable_signed_cert_timestamps();
+    if let Some(sct) = &tls.signed_certificate_timestamp {
+        if *sct {
+            builder.enable_signed_cert_timestamps();
+        }
     }
 }
 
 pub fn set_session_ticket(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    if tls.session_ticket {
-        builder.clear_options(SslOptions::NO_TICKET);
-    } else {
-        builder.set_options(SslOptions::NO_TICKET);
+    if let Some(ticket) = &tls.session_ticket {
+        if *ticket {
+            builder.clear_options(SslOptions::NO_TICKET);
+        } else {
+            builder.set_options(SslOptions::NO_TICKET);
+        }
     }
 }
 
 pub fn set_alps(ssl: &mut Ssl, http2: &Http2Config, tls: &TlsConfig) {
-    if tls.alps {
-        ssl.set_alps_use_new_codepoint(true);
+    if let Some(alps) = &tls.alps {
+        if *alps {
+            ssl.set_alps_use_new_codepoint(true);
 
-        let alps_payload = http2.encode_alps_payload();
-        let proto = b"h2";
+            let alps_payload = http2.encode_alps_payload();
+            let proto = b"h2";
 
-        unsafe {
-            let res = SSL_add_application_settings(
-                ssl.as_ptr() as *mut _,
-                proto.as_ptr(),
-                proto.len(),
-                alps_payload.as_ptr(),
-                alps_payload.len(),
-            );
+            unsafe {
+                let res = SSL_add_application_settings(
+                    ssl.as_ptr() as *mut _,
+                    proto.as_ptr(),
+                    proto.len(),
+                    alps_payload.as_ptr(),
+                    alps_payload.len(),
+                );
 
-            if res != 1 {
-                crate::log_tag!(warn, "TLS", "Failed to set ALPS settings payload");
+                if res != 1 {
+                    crate::log_tag!(warn, "TLS", "Failed to set ALPS settings payload");
+                }
             }
         }
     }
