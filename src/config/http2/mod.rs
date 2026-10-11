@@ -16,7 +16,6 @@ pub struct Http2Config {
     pub priority_frames: Option<Vec<H2PriorityFrame>>,
     #[serde(default)]
     pub headers_priority: Option<H2HeadersPriority>,
-    pub end_stream_on_headers: bool,
     pub pseudo_headers_order: Option<Vec<String>>,
     pub headers_order: Option<Vec<String>>,
     pub http_headers: Option<HashMap<String, Option<String>>>,

@@ -67,7 +67,13 @@ impl Transport for H2 {
     where
         P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let mut conn = timeout(Duration::from_secs(5), http2::server::handshake(plain))
+        let mut builder = http2::server::Builder::new();
+        builder
+            .max_concurrent_streams(128)
+            .initial_window_size(1 << 20)
+            .initial_connection_window_size(4 << 20);
+
+        let mut conn = timeout(Duration::from_secs(5), builder.handshake::<_, Bytes>(plain))
             .await
             .map_err(|_| anyhow!("h2 handshake timeout"))??;
 
@@ -84,15 +90,22 @@ impl Transport for H2 {
                     continue;
                 }
 
-                let r = Response::builder().status(200).body(()).unwrap();
+                let r = Response::builder()
+                    .status(200)
+                    .header("content-type", "application/octet-stream")
+                    .body(())
+                    .unwrap();
                 let Ok(send) = respond.send_response(r, false) else {
                     continue;
                 };
 
                 let stream: BoxedStream =
                     Box::pin(ChunkStream::new(H2Rx::Body(req.into_body()), H2Tx(send)));
-                if tx.send(stream).await.is_err() {
-                    break;
+
+                match tx.try_send(stream) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Full(_)) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => break,
                 }
             }
         });
@@ -147,6 +160,10 @@ impl ChunkTx for H2Tx {
             None => Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
             Some(Err(e)) => Poll::Ready(Err(io::Error::other(e))),
             Some(Ok(n)) => {
+                if n == 0 {
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
                 let n = n.min(buf.len());
                 self.0
                     .send_data(Bytes::copy_from_slice(&buf[..n]), false)

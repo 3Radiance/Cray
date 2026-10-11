@@ -7,11 +7,10 @@ pub async fn http2_builder() -> Result<http2::client::Builder> {
     let loader = get_config();
     let mut builder = http2::client::Builder::new();
 
-    let config = if let Some(config) = &loader.http2 {
-        config
-    } else {
-        return Err(anyhow::anyhow!("HTTP/2 configuration not found"));
-    };
+    let config = loader
+        .http2
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("HTTP/2 configuration not found"))?;
 
     let mut pseudo_builder = PseudoOrder::builder();
     let pseudo_headers_order = config.parse_pseudo_headers()?;

@@ -36,8 +36,8 @@ impl CertPair {
             ));
         }
 
-        let key =
-            PKey::private_key_from_pem(&key_pem).context("Failed to parse private key from PEM")?;
+        let key = PKey::private_key_from_pem(&key_pem)
+            .map_err(|e| anyhow!("Failed to parse private key (is it PKCS#8?): {e}"))?;
 
         crate::log_tag!(
             info,

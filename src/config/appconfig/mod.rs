@@ -39,6 +39,12 @@ pub enum LayerConfig {
         addr: Option<String>,
     },
 }
+impl LayerConfig {
+    pub fn is_protocol(&self) -> bool {
+        matches!(self, LayerConfig::Tsf { .. })
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)]
 pub struct AppConfig {

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod chain;
 pub mod config;
 pub mod fingerprint;
 pub mod inbound;
@@ -26,7 +27,7 @@ pub enum ConnectResult {
 }
 
 pub trait Listener: Send + Sync {
-    type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
+    type Stream: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
     type Addr: Send + 'static;
 
     fn accept(&self) -> impl Future<Output = Result<(Self::Stream, Self::Addr)>> + Send;
