@@ -8,6 +8,12 @@ addr = "127.0.0.1:10811"
 type = "tls"
 
 [[inbound.layers]]
+type = "http2"
+path = "/tun"
+host = "idk.com"
+method = "POST"
+
+[[inbound.layers]]
 type = "tsf"
 magic = 432
 
@@ -15,5 +21,5 @@ magic = 432
 type = "tcp"                 # direct
 
 [tls]
-cert = "/home/radiance-root/Games/fullchain.pem"
-key = "/home/radiance-root/Games/privkey.key"
+cert = "/path"
+key = "/path"
