@@ -46,7 +46,7 @@ impl Outbound for DefaultOut {
         if config.outbound.layers.len() > 1 {
             for layer in config.outbound.layers.iter().skip(1) {
                 stream = match layer {
-                    LayerConfig::Tls { sni } => match sni {
+                    LayerConfig::Tls { sni, .. } => match sni {
                         Some(sni) => {
                             let mut tls = transport::tls::Tls;
                             let tls_stream = tls.client(stream, &mut sni.to_owned()).await?;

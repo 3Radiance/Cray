@@ -1,13 +1,8 @@
 use crate::config::loader::get_config;
 use crate::config::{http2::Http2Config, tls::TlsConfig};
-use crate::fingerprint::tls::{
-    cert::CertPair,
-    compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor},
-};
+use crate::fingerprint::tls::compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor};
 use anyhow::Result;
-use btls::ssl::{
-    AlpnError, Ssl, SslAcceptor, SslConnector, SslContextBuilder, SslMethod, SslOptions,
-};
+use btls::ssl::{AlpnError, Ssl, SslConnector, SslContextBuilder, SslMethod, SslOptions};
 use btls_sys::SSL_add_application_settings;
 use foreign_types_shared::ForeignType;
 
@@ -234,22 +229,4 @@ pub fn set_delegated_credentials(builder: &mut SslContextBuilder, tls: &TlsConfi
             .map_err(|e| anyhow::anyhow!("[TLS] Failed to set delegated credentials: {e}"))?;
     }
     Ok(())
-}
-
-pub fn create_ssl_acceptor(ca: &CertPair, alpn: Vec<u8>) -> Result<SslAcceptor> {
-    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
-
-    set_alpn_select_callback(&mut builder, alpn.clone());
-
-    if let Some(leaf) = ca.chain.first() {
-        builder.set_certificate(leaf)?;
-    }
-
-    for cert in ca.chain.iter().skip(1) {
-        builder.add_extra_chain_cert(cert.clone())?;
-    }
-
-    builder.set_private_key(&ca.key)?;
-    builder.check_private_key()?;
-    Ok(builder.build())
 }

@@ -99,6 +99,8 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
+cert = "/path/to"
+key = "/path/to"
 
 [[inbound.layers]]
 type = "http2"
@@ -114,8 +116,7 @@ magic = 432
 type = "tcp"        # без адреса: подключаемся туда, куда попросил протокол
 
 [tls]
-cert = "/path/to/fullchain.pem"
-key  = "/path/to/privkey.pem"
+alpn = ["h2"]
 ```
 
 Здесь те же слои, но работают они как акцепторы:

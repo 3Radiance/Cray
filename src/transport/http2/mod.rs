@@ -25,6 +25,7 @@ impl Transport for H2 {
     type Stream = BoxedStream;
     type Incoming = mpsc::Receiver<BoxedStream>;
     type Context = String;
+    type ServerContext = ();
 
     async fn client<W>(&mut self, wire: W, _ctx: &mut Self::Context) -> Result<Self::Stream>
     where
@@ -63,7 +64,11 @@ impl Transport for H2 {
         )))
     }
 
-    async fn server<P>(&mut self, plain: P, _ctx: &mut Self::Context) -> Result<Self::Incoming>
+    async fn server<P>(
+        &mut self,
+        plain: P,
+        _ctx: &mut Self::ServerContext,
+    ) -> Result<Self::Incoming>
     where
         P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
