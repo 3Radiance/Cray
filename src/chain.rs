@@ -45,9 +45,14 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 inb.reply(&mut stream, ConnectResult::Ok).await?;
                 run_with(rest, stream, Arc::new(Some(r))).await
             }
-            LayerConfig::Tls { .. } => {
+            LayerConfig::Tls { cert, key, .. } => {
+                let (cert_path, key_path) = match (cert.as_deref(), key.as_deref()) {
+                    (Some(c), Some(k)) => (c, k),
+                    _ => bail!("TLS layer requires both 'cert' and 'key' paths to be specified!"),
+                };
                 let mut tls = Tls;
-                let incoming = tls.server(stream, &mut String::new()).await?;
+                let mut ctx = (cert_path.to_string(), key_path.to_string());
+                let incoming = tls.server(stream, &mut ctx).await?;
                 fan!(incoming, rest, req)
             }
             LayerConfig::Http2 { path, method, host } => {
@@ -56,7 +61,7 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                     authority: host.clone().unwrap_or_default(),
                     path: path.clone().unwrap_or_else(|| "/".to_string()),
                 };
-                let incoming = h2.server(stream, &mut String::new()).await?;
+                let incoming = h2.server(stream, &mut ()).await?;
                 fan!(incoming, rest, req)
             }
             other => bail!("layer {:?} is not valid in this chain", other),

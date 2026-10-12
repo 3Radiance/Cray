@@ -99,6 +99,8 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
+cert = "/path/to"
+key = "/path/to"
 
 [[inbound.layers]]
 type = "http2"
@@ -114,8 +116,7 @@ magic = 432
 type = "tcp"        # no address: connect to the destination requested by the protocol
 
 [tls]
-cert = "/path/to/fullchain.pem"
-key  = "/path/to/privkey.pem"
+alpn = ["h2"]
 ```
 
 The same layers are used here, but they act as acceptors:

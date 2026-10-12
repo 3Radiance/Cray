@@ -2,6 +2,7 @@ use crate::config::http2::Http2Config;
 use crate::config::tls::TlsConfig;
 use anyhow::Result;
 use serde::Deserialize;
+use zstd::stream::raw::Operation;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -34,6 +35,8 @@ pub enum LayerConfig {
     },
     Tls {
         sni: Option<String>,
+        cert: Option<String>,
+        key: Option<String>,
     },
     Unix {
         addr: Option<String>,

@@ -13,6 +13,7 @@ pub mod tls;
 
 pub trait Transport: Send + Sync {
     type Context;
+    type ServerContext;
     type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
     type Incoming: Incoming;
 
@@ -27,7 +28,7 @@ pub trait Transport: Send + Sync {
     fn server<P>(
         &mut self,
         plain: P,
-        ctx: &mut Self::Context,
+        ctx: &mut Self::ServerContext,
     ) -> impl Future<Output = Result<Self::Incoming>> + Send
     where
         P: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
