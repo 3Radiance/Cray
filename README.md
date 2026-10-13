@@ -41,7 +41,7 @@ The role changes the meaning of the layers: on the client, inbound is the browse
 | Layer | Client | Server |
 |---|---|---|
 | `tcp` | Inbound: listens on `addr`. Outbound: connects to `addr`. | Inbound: listens on `addr`. Outbound: without `addr`, connects directly to the destination (like “freedom/direct”). |
-| `unix` | Listens on a Unix socket. | Listens on a Unix socket. |
+| `unix` | Inbound: listens on `addr`. Outbound: connects to `addr`. | Inbound: listens on `addr`. Outbound: connects to `addr`. |
 | `http_connect` | Accepts HTTP CONNECT from the browser and extracts the destination address. | Not used. |
 | `tls` | Client handshake: `sni` and a configurable fingerprint. | Acceptor: performs a handshake using your certificates. |
 | `http2` | Opens a POST/PUT request and exposes a **virtual stream**. | HTTP/2 server: accepts streams and passes each onward as a separate stream. |

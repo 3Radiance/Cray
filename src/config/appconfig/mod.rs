@@ -1,8 +1,5 @@
-use crate::config::http2::Http2Config;
-use crate::config::tls::TlsConfig;
 use anyhow::Result;
 use serde::Deserialize;
-use zstd::stream::raw::Operation;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -29,6 +26,7 @@ pub enum LayerConfig {
         path: Option<String>,
         host: Option<String>,
         method: Option<String>,
+        config: Option<String>,
     },
     Tsf {
         magic: Option<u16>,
@@ -37,6 +35,8 @@ pub enum LayerConfig {
         sni: Option<String>,
         cert: Option<String>,
         key: Option<String>,
+        tls_path: Option<String>,
+        http2_path: Option<String>,
     },
     Unix {
         addr: Option<String>,
@@ -54,11 +54,6 @@ pub struct AppConfig {
     pub role: Role,
     pub inbound: InboundConfig,
     pub outbound: OutboundConfig,
-
-    #[serde(default)]
-    pub tls: Option<TlsConfig>,
-    #[serde(default)]
-    pub http2: Option<Http2Config>,
 }
 impl AppConfig {
     pub fn load(path: &str) -> Result<Self> {

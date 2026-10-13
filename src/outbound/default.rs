@@ -4,7 +4,7 @@ use crate::{
     ConnectRequest, config::loader::get_config, outbound::Outbound, transport::BoxedStream,
     transport::Transport,
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use tokio::net::{TcpStream, UnixStream};
 
 pub struct DefaultOut;
@@ -46,29 +46,57 @@ impl Outbound for DefaultOut {
         if config.outbound.layers.len() > 1 {
             for layer in config.outbound.layers.iter().skip(1) {
                 stream = match layer {
-                    LayerConfig::Tls { sni, .. } => match sni {
-                        Some(sni) => {
-                            let mut tls = transport::tls::Tls;
-                            let tls_stream = tls.client(stream, &mut sni.to_owned()).await?;
-                            Box::pin(tls_stream)
-                        }
-                        None => anyhow::bail!("SNI not specified for TLS"),
-                    },
-                    LayerConfig::Http2 { path, host, method } => {
-                        let path = path.as_deref().unwrap_or("/");
-                        let host = host.as_deref().unwrap_or(t.addr.as_str());
-                        let method = match method {
-                            Some(m) => m.parse().unwrap_or(http::Method::POST),
-                            None => http::Method::POST,
+                    LayerConfig::Tls {
+                        sni,
+                        tls_path,
+                        http2_path,
+                        ..
+                    } => {
+                        let (sni, config, h2_config) = match (
+                            sni.as_deref(),
+                            tls_path.as_deref(),
+                            http2_path.as_deref(),
+                        ) {
+                            (Some(sni_val), Some(config_path), Some(http2_path)) => {
+                                (sni_val, config_path, http2_path)
+                            }
+                            _ => {
+                                bail!(
+                                    "TLS layer requires 'sni', 'config' and 'http2_path' to be specified!"
+                                )
+                            }
                         };
-
+                        let mut tls = transport::tls::Tls;
+                        let mut ctx = (sni.to_owned(), config.to_owned(), h2_config.to_owned());
+                        let tls_stream = tls.client(stream, &mut ctx).await?;
+                        Box::pin(tls_stream)
+                    }
+                    LayerConfig::Http2 {
+                        path,
+                        host,
+                        method,
+                        config,
+                    } => {
+                        let (path, host, method, config) = match (
+                            path.as_deref(),
+                            host.as_deref(),
+                            method.as_deref(),
+                            config.as_deref(),
+                        ) {
+                            (Some(p), Some(h), Some(m), Some(c)) => (p, h, m, c),
+                            _ => {
+                                bail!(
+                                    "Http2 layer requires 'path', 'host', 'method' and 'config' to be specified!"
+                                )
+                            }
+                        };
                         let mut h2 = transport::http2::H2 {
-                            method,
+                            method: method.parse().unwrap(),
                             authority: host.to_string(),
                             path: path.to_string(),
                         };
-
-                        let h2_stream = h2.client(stream, &mut "".to_string()).await?;
+                        let mut config = config.to_owned();
+                        let h2_stream = h2.client(stream, &mut config).await?;
                         Box::pin(h2_stream)
                     }
                     _ => stream,

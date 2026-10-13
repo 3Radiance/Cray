@@ -1,21 +1,16 @@
-use crate::config::loader::get_config;
+use crate::config::loader::get_tls;
 use crate::config::{http2::Http2Config, tls::TlsConfig};
 use crate::fingerprint::tls::compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor};
 use anyhow::Result;
 use btls::ssl::{AlpnError, Ssl, SslConnector, SslContextBuilder, SslMethod, SslOptions};
 use btls_sys::SSL_add_application_settings;
 use foreign_types_shared::ForeignType;
+use std::sync::Arc;
 
-pub async fn tls_builder() -> Result<SslConnector> {
-    let loader = get_config();
+pub async fn tls_builder(profile_path: &str) -> Result<SslConnector> {
+    let tls = get_tls(profile_path)?;
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     let mut store_builder = btls::x509::store::X509StoreBuilder::new()?;
-
-    let tls = if let Some(tls) = &loader.tls {
-        tls
-    } else {
-        return Err(anyhow::anyhow!("TLS configuration not found"));
-    };
 
     for cert_der in chromium_roots::TLS_SERVER_ROOT_CERTS {
         if let Ok(cert) = btls::x509::X509::from_der(cert_der) {
@@ -196,7 +191,7 @@ pub fn set_session_ticket(builder: &mut SslContextBuilder, tls: &TlsConfig) {
     }
 }
 
-pub fn set_alps(ssl: &mut Ssl, http2: &Http2Config, tls: &TlsConfig) {
+pub fn set_alps(ssl: &mut Ssl, http2: Arc<Http2Config>, tls: Arc<TlsConfig>) {
     if let Some(alps) = &tls.alps {
         if *alps {
             ssl.set_alps_use_new_codepoint(true);

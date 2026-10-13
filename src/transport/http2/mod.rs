@@ -1,16 +1,14 @@
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use std::task::{Context, Poll, ready};
-
-use crate::config::loader::get_config;
-use crate::fingerprint::http2::builder::http2_builder;
+use crate::config::loader::{get_http2, get_or_build_http2};
 use crate::transport::{BoxedStream, ChunkRx, ChunkStream, ChunkTx, Transport};
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use http::{HeaderMap, Request, Response};
 use http2::client::ResponseFuture;
 use http2::{RecvStream, SendStream};
+use std::future::Future;
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
@@ -27,17 +25,12 @@ impl Transport for H2 {
     type Context = String;
     type ServerContext = ();
 
-    async fn client<W>(&mut self, wire: W, _ctx: &mut Self::Context) -> Result<Self::Stream>
+    async fn client<W>(&mut self, wire: W, ctx: &mut Self::Context) -> Result<Self::Stream>
     where
         W: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let builder = http2_builder().await?;
-        let loader = &get_config();
-        let http2 = if let Some(h2) = &loader.http2 {
-            h2
-        } else {
-            return Err(anyhow!("HTTP/2 configuration not found"));
-        };
+        let builder = get_or_build_http2(ctx)?;
+        let http2 = get_http2(ctx)?;
 
         let (send_req, conn) = timeout(Duration::from_secs(5), builder.handshake::<_, Bytes>(wire))
             .await
