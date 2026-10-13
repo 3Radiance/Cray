@@ -27,6 +27,7 @@ impl Protocol for Tsf {
         C: AsyncRead + AsyncWrite + Unpin + Send + Sync,
         W: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
+        crate::log_tag!(info, "TSF", "Client TSF relay started for target {}:{}", t.addr, t.port);
         let (mut p_r, p_w) = tokio::io::split(plain);
         let (w_r, mut w_w) = tokio::io::split(wire);
 
@@ -76,6 +77,7 @@ impl Protocol for Tsf {
     where
         W: AsyncRead + AsyncWrite + Unpin + Send,
     {
+        crate::log_tag!(info, "TSF", "Server TSF relay started");
         let (addr_str, port, initial_payload) = {
             let len_packet = wire.read_u32().await?;
 
@@ -103,9 +105,10 @@ impl Protocol for Tsf {
         };
 
         let connect = ConnectRequest {
-            addr: addr_str,
+            addr: addr_str.clone(),
             port,
         };
+        crate::log_tag!(info, "TSF", "Parsed upstream target: {:?}", connect);
         let out = DefaultOut;
         let mut plain = out.connect(&connect).await?;
 

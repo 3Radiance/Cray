@@ -6,8 +6,8 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
-cert = "/path/to"
-key = "/path/to"
+cert = "/path/to/fullchain.pem"
+key = "/path/to/privkey.pem"
 tls_path = "./tls.toml" # Used only for ALPN negotiation
 
 [[inbound.layers]]

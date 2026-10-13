@@ -12,7 +12,7 @@ use anyhow::Result;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConnectRequest {
     pub addr: String,
     pub port: u16,

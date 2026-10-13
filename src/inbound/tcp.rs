@@ -9,9 +9,9 @@ pub struct Tcp {
 
 impl Tcp {
     pub async fn bind<A: tokio::net::ToSocketAddrs>(addr: A) -> Result<Self> {
-        Ok(Self {
-            listener: TokioTcpListener::bind(addr).await?,
-        })
+        let listener = TokioTcpListener::bind(addr).await?;
+        crate::log_tag!(info, "LISTEN", "TCP listener bound");
+        Ok(Self { listener })
     }
 }
 
@@ -22,6 +22,7 @@ impl Listener for Tcp {
     async fn accept(&self) -> Result<(Self::Stream, Self::Addr)> {
         let (stream, peer) = self.listener.accept().await?;
         stream.set_nodelay(true)?;
+        crate::log_tag!(info, "INB", "Accepted TCP connection from {}", peer);
         Ok((stream, peer))
     }
 }

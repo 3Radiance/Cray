@@ -29,6 +29,7 @@ impl Transport for H2 {
     where
         W: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
+        crate::log_tag!(info, "H2", "Starting HTTP/2 client handshake for profile {}", ctx);
         let builder = get_or_build_http2(ctx)?;
         let http2 = get_http2(ctx)?;
 
@@ -51,6 +52,7 @@ impl Transport for H2 {
         let (resp_fut, send_stream) = send_req.send_request(req.body(())?, false)?;
         drop(send_req);
 
+        crate::log_tag!(info, "H2", "HTTP/2 client connected to {}{}", self.authority, self.path);
         Ok(Box::pin(ChunkStream::new(
             H2Rx::Pending(resp_fut),
             H2Tx(send_stream),
@@ -65,6 +67,7 @@ impl Transport for H2 {
     where
         P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
+        crate::log_tag!(info, "H2", "Starting HTTP/2 server for path {} method {}", self.path, self.method);
         let mut builder = http2::server::Builder::new();
         builder
             .max_concurrent_streams(128)
@@ -77,6 +80,7 @@ impl Transport for H2 {
 
         let (tx, rx) = mpsc::channel(64);
         let (method, path) = (self.method.clone(), self.path.clone());
+        crate::log_tag!(info, "H2", "HTTP/2 listener ready");
 
         tokio::spawn(async move {
             while let Some(res) = conn.accept().await {

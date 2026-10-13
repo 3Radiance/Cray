@@ -38,10 +38,13 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
             return finish(stream, req).await;
         };
 
+        log_tag!(debug, "CHAIN", "Processing layer: {:?}", layer);
+
         match layer {
             LayerConfig::HttpConnect => {
                 let inb = crate::inbound::http_connect::HttpRequest;
                 let r = inb.handshake(&mut stream).await?;
+                log_tag!(info, "CHAIN", "HTTP CONNECT request: {:?}", r);
                 inb.reply(&mut stream, ConnectResult::Ok).await?;
                 run_with(rest, stream, Arc::new(Some(r))).await
             }
@@ -103,6 +106,7 @@ async fn finish(stream: BoxedStream, req: Req) -> Result<()> {
     };
 
     let mut proto = if let Some(layer) = proto_layer {
+        log_tag!(info, "CHAIN", "Using protocol layer: {:?}", layer);
         proto_builder(layer)?
     } else {
         bail!("No protocol layer found");
@@ -115,10 +119,12 @@ async fn finish(stream: BoxedStream, req: Req) -> Result<()> {
             let r = (*req)
                 .as_ref()
                 .ok_or_else(|| anyhow!("no ConnectRequest"))?;
+            log_tag!(info, "CHAIN", "Client role: connecting to {}:{}", r.addr, r.port);
             let out = DefaultOut.connect(r).await?;
             proto.client(stream, out, r, &mut ctx).await?;
         }
         Role::Server => {
+            log_tag!(info, "CHAIN", "Server role: handling incoming stream");
             proto.server(stream, &mut ctx).await?;
         }
     }

@@ -7,14 +7,17 @@ macro_rules! log_tag {
     };
 }
 
+pub fn default_log_filter() -> EnvFilter {
+    EnvFilter::try_new("debug").expect("valid tracing env filter")
+}
+
 pub fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log_filter());
+
     let _ = fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .or_else(|_| EnvFilter::try_new("info"))
-                .expect("valid tracing env filter"),
-        )
+        .with_env_filter(filter)
         .with_target(false)
+        .with_level(true)
         .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
         .event_format(tracing_subscriber::fmt::format().pretty())
         .try_init();
@@ -22,6 +25,13 @@ pub fn init_logging() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn default_log_filter_is_debug() {
+        let filter = super::default_log_filter();
+
+        assert_eq!(filter.to_string(), "debug");
+    }
+
     #[test]
     fn logging_smoke_test() {
         super::init_logging();
