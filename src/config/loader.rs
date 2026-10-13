@@ -21,6 +21,7 @@ type ProfileKey = String;
 
 pub fn load(path: &str) -> Result<()> {
     let config = AppConfig::load(path)?;
+    crate::log_tag!(info, "CFG", "Loaded config from {}", path);
 
     CONFIG
         .set(config)
@@ -55,9 +56,11 @@ pub fn get_or_load_tls_acceptor(
     let cache = global_cert_cache();
 
     if let Some(acceptor) = cache.get(&key) {
+        crate::log_tag!(debug, "TLS", "Using cached acceptor for cert {} and key {}", cert_path, key_path);
         return Ok(Arc::clone(&acceptor));
     }
 
+    crate::log_tag!(info, "TLS", "Building TLS acceptor for cert {} and key {}", cert_path, key_path);
     let pair = CertPair::load(cert_path, key_path)?;
     let tls_config = get_tls(config_path)?;
     let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
@@ -88,8 +91,10 @@ fn tls_connector_cache() -> &'static DashMap<ProfileKey, Arc<SslConnector>> {
 pub async fn get_or_build_tls_connector(profile_path: &str) -> Result<Arc<SslConnector>> {
     let cache = tls_connector_cache();
     if let Some(c) = cache.get(profile_path) {
+        crate::log_tag!(debug, "TLS", "Using cached TLS connector for profile {}", profile_path);
         return Ok(Arc::clone(&c));
     }
+    crate::log_tag!(info, "TLS", "Building TLS connector for profile {}", profile_path);
     let built = Arc::new(tls_builder(profile_path).await?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)
@@ -102,8 +107,10 @@ fn get_http2_connector_cache() -> &'static DashMap<ProfileKey, Arc<http2::client
 pub fn get_or_build_http2(profile_path: &str) -> Result<Arc<http2::client::Builder>> {
     let cache = get_http2_connector_cache();
     if let Some(c) = cache.get(profile_path) {
+        crate::log_tag!(debug, "H2", "Using cached HTTP/2 builder for profile {}", profile_path);
         return Ok(Arc::clone(&c));
     }
+    crate::log_tag!(info, "H2", "Building HTTP/2 builder for profile {}", profile_path);
     let built = Arc::new(http2_builder(profile_path)?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)

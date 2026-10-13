@@ -13,7 +13,7 @@ addr = "127.0.0.1:10811"
 
 [[outbound.layers]]
 type = "tls"
-sni = "domain.com"
+sni = "idk.com"
 tls_path = "./tls.toml"
 http2_path = "./http2.toml" # if alps = true else set stub http2_path  = "/"
 
