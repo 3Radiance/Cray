@@ -70,12 +70,15 @@ addr = "127.0.0.1:10811"
 [[outbound.layers]]
 type = "tls"
 sni = "domain.com"
+tls_path = "./tls.toml"
+http2_path = "./http2.toml"   # читается только при alps = true
 
 [[outbound.layers]]
 type = "http2"
 path = "/tun"
 host = "idk.com"
 method = "POST"
+config = "./http2.toml"
 
 [[outbound.layers]]
 type = "tsf"      # протокол всегда последний
@@ -99,8 +102,9 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
-cert = "/path/to"
-key = "/path/to"
+cert = "/path/to/fullchain.pem"
+key = "/path/to/privkey.pem"
+tls_path = "./tls.toml"      # на сервере из него читается только alpn
 
 [[inbound.layers]]
 type = "http2"
@@ -114,15 +118,12 @@ magic = 432
 
 [[outbound.layers]]
 type = "tcp"        # без адреса: подключаемся туда, куда попросил протокол
-
-[tls]
-alpn = ["h2"]
 ```
 
 Здесь те же слои, но работают они как акцепторы:
 
 - `tls` принимает сокет, делает рукопожатие с вашими сертификатами и отдаёт его дальше;
-- `http2` это HTTP/2-сервер: принимает только запросы с совпадающими `host` и `path`, остальным отвечает 404 (`method` пока не проверяется);
+- `http2` это HTTP/2-сервер: принимает только запросы с совпадающими `method` и `path`, остальным отвечает 404 (`host` пока не проверяется);
 - затем вызывается **серверная функция протокола**, которой передаётся стрим;
 - `tcp` в outbound без адреса подключается к цели, которую назвал протокол.
 
@@ -133,7 +134,7 @@ alpn = ["h2"]
 И TLS, и HTTP/2 настраиваются целиком. Cray умеет задавать значения вручную, профилей пока что нету.
 
 ```toml
-[tls]
+# tls.toml
 cipher_suites = [
     "TLS_AES_128_GCM_SHA256",
     "TLS_AES_256_GCM_SHA384",
@@ -151,11 +152,11 @@ signature_algorithms = [
 permute_extensions = true
 ```
 
-Секция `[http2]` описывает HTTP/2-отпечаток: SETTINGS, порядок псевдозаголовков и заголовков, приоритеты.
+Отпечатки лежат в отдельных файлах профилей, на которые указывают слои: `tls_path` (TLS) и `config` (HTTP/2). HTTP/2-профиль `http2.toml` описывает SETTINGS, порядок псевдозаголовков и заголовков, приоритеты.
 
-Подробное описание всех полей: [docs/TLS.md](docs/ru/tls.md) и [docs/HTTP2.md](docs/ru/http2.md).
+Подробное описание всех полей: [docs/ru/tls.md](docs/ru/tls.md) и [docs/ru/http2.md](docs/ru/http2.md).
 
-На сервере для h2 нужно `alpn = ["h2"]` в `[tls]`.
+На сервере для h2 нужно `alpn = ["h2"]` в профиле, на который указывает `tls_path` слоя `tls`.
 
 ---
 

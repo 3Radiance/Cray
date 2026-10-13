@@ -70,12 +70,15 @@ addr = "127.0.0.1:10811"
 [[outbound.layers]]
 type = "tls"
 sni = "domain.com"
+tls_path = "./tls.toml"
+http2_path = "./http2.toml"   # read only when alps = true
 
 [[outbound.layers]]
 type = "http2"
 path = "/tun"
 host = "idk.com"
 method = "POST"
+config = "./http2.toml"
 
 [[outbound.layers]]
 type = "tsf"      # the protocol is always last
@@ -99,8 +102,9 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
-cert = "/path/to"
-key = "/path/to"
+cert = "/path/to/fullchain.pem"
+key = "/path/to/privkey.pem"
+tls_path = "./tls.toml"      # on the server only alpn is read from it
 
 [[inbound.layers]]
 type = "http2"
@@ -114,15 +118,12 @@ magic = 432
 
 [[outbound.layers]]
 type = "tcp"        # no address: connect to the destination requested by the protocol
-
-[tls]
-alpn = ["h2"]
 ```
 
 The same layers are used here, but they act as acceptors:
 
 - `tls` accepts the socket, performs a handshake using your certificates, and passes it onward;
-- `http2` is an HTTP/2 server: it accepts only requests whose `host` and `path` match, and returns 404 to others (`method` is not checked yet);
+- `http2` is an HTTP/2 server: it accepts only requests whose `method` and `path` match, and returns 404 to others (`host` is not checked yet);
 - the **server-side protocol function** is then called and given the stream;
 - `tcp` in outbound, when no address is specified, connects to the destination provided by the protocol.
 
@@ -133,7 +134,7 @@ The same layers are used here, but they act as acceptors:
 Both TLS and HTTP/2 can be configured in full. Cray lets you set values manually; presets are not available yet.
 
 ```toml
-[tls]
+# tls.toml
 cipher_suites = [
     "TLS_AES_128_GCM_SHA256",
     "TLS_AES_256_GCM_SHA384",
@@ -151,11 +152,11 @@ signature_algorithms = [
 permute_extensions = true
 ```
 
-The `[http2]` section describes the HTTP/2 fingerprint: SETTINGS, pseudo-header and header ordering, and priorities.
+Fingerprints live in separate profile files that the layers point to: `tls_path` (TLS) and `config` (HTTP/2). The HTTP/2 profile, `http2.toml`, describes SETTINGS, pseudo-header and header ordering, and priorities.
 
-For a detailed description of all fields, see [docs/TLS.md](docs/eng/tls.md) and [docs/HTTP2.md](docs/eng/http2.md).
+For a detailed description of all fields, see [docs/eng/tls.md](docs/eng/tls.md) and [docs/eng/http2.md](docs/eng/http2.md).
 
-On the server, HTTP/2 requires `alpn = ["h2"]` in `[tls]`.
+On the server, HTTP/2 requires `alpn = ["h2"]` in the profile that the `tls` layer points to with `tls_path`.
 
 ---
 

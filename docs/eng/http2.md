@@ -1,16 +1,16 @@
 # HTTP/2 Fingerprint Customization 
 
 HTTP/2 fingerprinting (the Akamai-style hash over SETTINGS, window sizes,
-priorities and header order) is fully configurable through the `[http2]`
-section of the config. The client-side `http2` layer shapes everything the
+priorities and header order) is fully configurable through an HTTP/2 profile file
+that the `http2` layer points to with `config`. The client-side `http2` layer shapes everything the
 network can see: the connection preface, the SETTINGS frame, stream
 priorities, pseudo-header order and header order
 (`src/fingerprint/http2/`).
 
 Unlike a forwarding proxy, Cray **originates** the HTTP/2 request itself.
 There are no incoming browser headers to pass through: the request is built
-from the layer parameters (`method`, `host`, `path`) and the `[http2]`
-header configuration.
+from the layer parameters (`method`, `host`, `path`) and the header
+configuration in the profile.
 
 ## How the layer works
 
@@ -18,9 +18,10 @@ Client (`outbound.layers`):
 
 ```
 tls stream ──▶ http2 layer ──▶ virtual stream ──▶ protocol
-                 1. HTTP/2 handshake with the profiled builder (5 second timeout)
+                 1. HTTP/2 handshake with the profiled builder (built once per profile
+                    file and cached, 5 second timeout)
                  2. one request: method + :authority + :path from the layer,
-                    headers from [http2], END_STREAM is NOT set on HEADERS
+                    headers from the profile, END_STREAM is NOT set on HEADERS
                  3. the request body is the upload direction,
                     the response body is the download direction
 ```
@@ -30,7 +31,8 @@ Server (`inbound.layers`):
 ```
 tls stream ──▶ http2 layer ──▶ one virtual stream per accepted request ──▶ protocol
                  1. HTTP/2 server handshake (5 second timeout)
-                 2. every request whose method and path match is answered 200,
+                 2. every request whose method and path match is answered 200
+                    (content-type: application/octet-stream),
                     anything else is answered 404
                  3. each accepted request becomes an independent byte stream
 ```
@@ -42,8 +44,9 @@ written go out as DATA frames in the request body (client) or the response body
 (`WINDOW_UPDATE`) is handled inside the layer. Closing the write side sends an
 empty DATA frame with `END_STREAM`.
 
-The profile in `[http2]` shapes the client side only. The server uses its own
-settings.
+The profile shapes the client side only. The server ignores it and uses fixed
+settings (128 concurrent streams, 1 MiB stream window, 4 MiB connection
+window).
 
 ## Layer parameters
 
@@ -53,21 +56,28 @@ type = "http2"
 path = "/tun"
 host = "example.com"
 method = "POST"
+config = "./http2.toml"
 ```
 
 | Field | Client | Server |
 |---|---|---|
-| `path` | request `:path` | requests must match, others get 404 |
-| `method` | `POST` or `PUT` | not checked yet |
-| `host` | request `:authority` | requests must match, others get 404 |
+| `path` | required: request `:path` | required: requests must match, others get 404 |
+| `method` | required: `POST` or `PUT` | required: requests must match, others get 404 |
+| `host` | required: request `:authority` | required but not checked yet; kept so both sides share one description |
+| `config` | required: path to the HTTP/2 profile | not used |
 | scheme | always `https` | n/a |
 
-## Example configuration (`[http2]` section)
+The profile is a separate file with only top-level keys (there is no `[http2]`
+header). Relative paths are resolved against the process working directory. The
+profile is loaded on the first connection and cached by path, so errors in it
+show up then and edits need a restart. Keys that are not part of the profile are
+ignored silently.
+
+## Example profile (`http2.toml`)
 
 ```toml
-[http2]
+# http2.toml
 connection_window_update = 15663105
-end_stream_on_headers = false      # required by the parser, ignored by the tunnel
 settings_order = [
     "HEADER_TABLE_SIZE",
     "ENABLE_PUSH",
@@ -78,18 +88,18 @@ pseudo_headers_order = [":method", ":authority", ":scheme", ":path"]
 headers_order = ["user-agent", "accept", "accept-language", "priority"]
 # initial_stream_id = 3             omit to derive it
 
-[http2.settings]
+[settings]
 header_table_size = 65536
 enable_push = false
 initial_window_size = 6291456
 max_frame_size = 16384
 
-[http2.headers_priority]
+[headers_priority]
 exclusive = true
 depends_on = 0
 weight = 255
 
-[http2.http_headers]
+[http_headers]
 user-agent = "Mozilla/5.0 (...)"
 accept = "*/*"
 accept-language = "en-US,en;q=0.6"
@@ -97,12 +107,12 @@ priority = "u=0, i"
 ```
 
 TOML has no `null`. To leave an optional field unset, omit the key. Write
-scalar keys of `[http2]` before its sub-tables.
+scalar keys before the first table header.
 
 ### `settings`: SETTINGS frame values
 
 Values advertised in the SETTINGS frame. Omitted optional keys are not sent.
-`enable_push` is a plain boolean and must be present whenever `[http2.settings]`
+`enable_push` is a plain boolean and must be present whenever `[settings]`
 exists:
 
 | Field | Meaning |
@@ -114,7 +124,7 @@ exists:
 | `max_frame_size` | Max frame payload size. |
 | `max_header_list_size` | Max header list size. Omit to leave it out. |
 
-If the whole `[http2.settings]` table is missing, no values are customized and
+If the whole `[settings]` table is missing, no values are customized and
 the library defaults apply.
 
 ### `settings_order`: SETTINGS parameter order
@@ -159,13 +169,13 @@ PRIORITY frames sent before the request stream (the classic Firefox priority
 tree signal), written as an array of tables:
 
 ```toml
-[[http2.priority_frames]]
+[[priority_frames]]
 stream_id = 3
 exclusive = false
 depends_on = 0
 weight = 201
 
-[[http2.priority_frames]]
+[[priority_frames]]
 stream_id = 5
 exclusive = false
 depends_on = 0
@@ -187,7 +197,7 @@ and no `initial_stream_id`, the request stream becomes `7`.
 Priority attached to the request HEADERS frame:
 
 ```toml
-[http2.headers_priority]
+[headers_priority]
 exclusive = true
 depends_on = 0
 weight = 255
@@ -195,13 +205,6 @@ weight = 255
 
 Same fields as a priority frame, minus `stream_id`. Omit the table for no
 custom dependency.
-
-### `end_stream_on_headers`
-
-The parser requires this key to be present, but the tunnel ignores it: the
-request always carries a body, so `END_STREAM` is never placed on HEADERS. It
-is closed by the final empty DATA frame when the protocol shuts down its write
-side. Set it to `false`.
 
 ### `pseudo_headers_order`: pseudo-header order
 
@@ -230,7 +233,7 @@ The request header list is built from these two fields only:
 ```toml
 headers_order = ["user-agent", "accept", "accept-language", "priority"]
 
-[http2.http_headers]
+[http_headers]
 user-agent = "Mozilla/5.0"
 accept = "*/*"
 accept-language = "en-US,en;q=0.6"
@@ -261,9 +264,10 @@ only after reading.
 
 ## ALPS coupling
 
-When `tls.alps` is `true`, the same `settings` and `settings_order` are
-re-encoded as the TLS ALPS payload for `h2` (see [TLS.md](TLS.md)). Browsers
-use that exact encoding, so one config drives both places on the wire. Keep
+When `alps = true` in the TLS profile, the same `settings` and `settings_order` are
+re-encoded as the TLS ALPS payload for `h2` (see [tls.md](tls.md)). Browsers
+use that exact encoding, so one profile drives both places on the wire. The TLS layer finds it through
+`http2_path`; point that at the same file as `config` on the `http2` layer. Keep
 them in sync with the browser you imitate: a mismatch between the SETTINGS
 frame and the ALPS payload is itself a fingerprint signal.
 
@@ -272,8 +276,7 @@ frame and the ALPS payload is itself a fingerprint signal.
 - `settings_order` and `pseudo_headers_order` are validated: unknown names fail
   the connection instead of degrading silently. Check the spelling against the
   vocabularies above.
-- `end_stream_on_headers` must be present even though the tunnel ignores it.
-  `enable_push` must be present whenever `[http2.settings]` exists.
+- `enable_push` must be present whenever the `[settings]` table exists.
 - `settings` values outside the protocol range (for example an absurd
   `max_frame_size`) are rejected by the HTTP/2 stack at handshake time.
 - `initial_stream_id` colliding with `priority_frames` IDs kills the
@@ -283,8 +286,11 @@ frame and the ALPS payload is itself a fingerprint signal.
 - The server accepts only requests whose method and path match the layer;
   everything else gets 404. A client and a server with different `path` or
   `method` values never connect.
-- The client needs an `[http2]` section even when only the TLS layer is used
-  (the TLS layer reads it for ALPS).
+- The client `http2` layer needs `config`. The TLS layer needs `http2_path`
+  only when `alps = true`; point both at the same file.
+- Unknown keys are ignored without any warning (this includes the former
+  `end_stream_on_headers` key). If a setting seems to have no effect, check the
+  spelling of the key first.
 - To verify the result, capture the client's traffic (Wireshark) or log the
   JA3/JA4 and HTTP/2 fingerprint on the server side (for example in nginx),
   and compare it with a capture of the real browser you imitate.
