@@ -38,12 +38,10 @@ fn check(name: &str, layers: &[LayerConfig], proto: Proto) -> Result<()> {
 
 pub fn validate(cfg: &AppConfig) -> Result<()> {
     match cfg.role {
-        // клиент: inbound это вход браузера, outbound это туннель до сервера
         Role::Client => {
             check("inbound", &cfg.inbound.layers, Proto::Forbidden)?;
             check("outbound", &cfg.outbound.layers, Proto::Required)
         }
-        // сервер: inbound это приём туннеля, outbound это выход в интернет
         Role::Server => {
             check("inbound", &cfg.inbound.layers, Proto::Required)?;
             check("outbound", &cfg.outbound.layers, Proto::Optional)

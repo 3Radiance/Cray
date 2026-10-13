@@ -1,16 +1,11 @@
-use crate::config::http2::Http2Config;
-use crate::config::loader::get_config;
+use crate::config::{http2::Http2Config, loader::get_http2};
 use anyhow::Result;
 use http2::frame::{Priorities, PseudoOrder, SettingsOrder};
 
-pub async fn http2_builder() -> Result<http2::client::Builder> {
-    let loader = get_config();
+pub fn http2_builder(path: &str) -> Result<http2::client::Builder> {
     let mut builder = http2::client::Builder::new();
 
-    let config = loader
-        .http2
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("HTTP/2 configuration not found"))?;
+    let config = get_http2(path)?;
 
     let mut pseudo_builder = PseudoOrder::builder();
     let pseudo_headers_order = config.parse_pseudo_headers()?;

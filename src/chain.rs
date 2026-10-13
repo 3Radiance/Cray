@@ -45,21 +45,47 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 inb.reply(&mut stream, ConnectResult::Ok).await?;
                 run_with(rest, stream, Arc::new(Some(r))).await
             }
-            LayerConfig::Tls { cert, key, .. } => {
-                let (cert_path, key_path) = match (cert.as_deref(), key.as_deref()) {
-                    (Some(c), Some(k)) => (c, k),
-                    _ => bail!("TLS layer requires both 'cert' and 'key' paths to be specified!"),
+            LayerConfig::Tls {
+                cert,
+                key,
+                tls_path,
+                ..
+            } => {
+                let (cert_path, key_path, config) = match (
+                    cert.as_deref(),
+                    key.as_deref(),
+                    tls_path.as_deref(),
+                ) {
+                    (Some(c), Some(k), Some(config_path)) => (c, k, config_path),
+                    _ => {
+                        bail!(
+                            "TLS layer requires 'cert', 'key' and 'config' paths to be specified!"
+                        )
+                    }
                 };
                 let mut tls = Tls;
-                let mut ctx = (cert_path.to_string(), key_path.to_string());
+                let mut ctx = (
+                    cert_path.to_string(),
+                    key_path.to_string(),
+                    config.to_owned(),
+                );
                 let incoming = tls.server(stream, &mut ctx).await?;
                 fan!(incoming, rest, req)
             }
-            LayerConfig::Http2 { path, method, host } => {
+            LayerConfig::Http2 {
+                path, method, host, ..
+            } => {
+                let (path, host, method) =
+                    match (path.as_deref(), host.as_deref(), method.as_deref()) {
+                        (Some(p), Some(h), Some(m)) => (p, h, m),
+                        _ => {
+                            bail!("Http2 layer requires 'path', 'host', 'method' to be specified!")
+                        }
+                    };
                 let mut h2 = H2 {
-                    method: method.as_deref().unwrap_or("POST").parse()?,
-                    authority: host.clone().unwrap_or_default(),
-                    path: path.clone().unwrap_or_else(|| "/".to_string()),
+                    method: method.parse()?,
+                    authority: host.to_string(),
+                    path: path.to_string(),
                 };
                 let incoming = h2.server(stream, &mut ()).await?;
                 fan!(incoming, rest, req)

@@ -1,3 +1,4 @@
+use anyhow::Result;
 use http2::frame::PseudoId;
 use http2::frame::SettingId;
 use http2::frame::{Priority, StreamDependency};
@@ -48,6 +49,12 @@ pub struct Settings {
 }
 
 impl Http2Config {
+    pub fn load(path: &str) -> Result<Self> {
+        let contents = std::fs::read_to_string(path)?;
+        let config: Http2Config = toml::from_str(&contents)?;
+        Ok(config)
+    }
+
     pub fn parse_pseudo_headers(&self) -> anyhow::Result<Vec<PseudoId>> {
         self.pseudo_headers_order
             .as_ref()

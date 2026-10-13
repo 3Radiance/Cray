@@ -1,3 +1,4 @@
+use anyhow::Result;
 use btls::ssl::ExtensionType;
 use serde::Deserialize;
 
@@ -24,6 +25,12 @@ pub struct TlsConfig {
 }
 
 impl TlsConfig {
+    pub fn load(path: &str) -> Result<Self> {
+        let contents = std::fs::read_to_string(path)?;
+        let config: TlsConfig = toml::from_str(&contents)?;
+        Ok(config)
+    }
+
     pub fn encode_alpn_wire(&self) -> Vec<u8> {
         if let Some(alpn) = &self.alpn {
             let total_len: usize = alpn.iter().map(|p| 1 + p.len()).sum();
