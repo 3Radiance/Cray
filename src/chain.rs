@@ -1,4 +1,4 @@
-use crate::config::appconfig::{LayerConfig, Role};
+use crate::config::appconfig::{LayerConfig, Role, with_timeout};
 use crate::config::loader::get_config;
 use crate::inbound::Inbound;
 use crate::outbound::{Outbound, default::DefaultOut};
@@ -60,6 +60,7 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 cert,
                 key,
                 tls_path,
+                timeout,
                 ..
             } => {
                 let (cert_path, key_path, config) = match (
@@ -80,11 +81,16 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                     key_path.to_string(),
                     config.to_owned(),
                 );
-                let incoming = tls.server(stream, &mut ctx).await?;
+                let dur = get_config().resolve_timeout(timeout.as_ref(), 6)?;
+                let incoming = with_timeout("tls handshake", dur, tls.server(stream, &mut ctx)).await?;
                 fan!(incoming, rest, req)
             }
             LayerConfig::Http2 {
-                path, method, host, ..
+                path,
+                method,
+                host,
+                timeout,
+                ..
             } => {
                 let (path, host, method) =
                     match (path.as_deref(), host.as_deref(), method.as_deref()) {
@@ -98,7 +104,8 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                     authority: host.to_string(),
                     path: path.to_string(),
                 };
-                let incoming = h2.server(stream, &mut ()).await?;
+                let dur = get_config().resolve_timeout(timeout.as_ref(), 5)?;
+                let incoming = with_timeout("h2 handshake", dur, h2.server(stream, &mut ())).await?;
                 fan!(incoming, rest, req)
             }
             LayerConfig::Jitter { stages } => {

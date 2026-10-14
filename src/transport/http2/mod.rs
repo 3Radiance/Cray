@@ -11,7 +11,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
-use tokio::time::{Duration, timeout};
 
 pub struct H2 {
     pub method: http::Method,
@@ -38,9 +37,10 @@ impl Transport for H2 {
         let builder = get_or_build_http2(ctx)?;
         let http2 = get_http2(ctx)?;
 
-        let (send_req, conn) = timeout(Duration::from_secs(5), builder.handshake::<_, Bytes>(wire))
+        let (send_req, conn) = builder
+            .handshake::<_, Bytes>(wire)
             .await
-            .map_err(|_| anyhow!("h2 handshake timeout"))??;
+            .map_err(|e| anyhow!("h2 handshake failed: {e}"))?;
 
         tokio::spawn(async move {
             let _ = conn.await;
@@ -91,9 +91,10 @@ impl Transport for H2 {
             .initial_window_size(1 << 20)
             .initial_connection_window_size(4 << 20);
 
-        let mut conn = timeout(Duration::from_secs(5), builder.handshake::<_, Bytes>(plain))
+        let mut conn = builder
+            .handshake::<_, Bytes>(plain)
             .await
-            .map_err(|_| anyhow!("h2 handshake timeout"))??;
+            .map_err(|e| anyhow!("h2 handshake failed: {e}"))?;
 
         let (tx, rx) = mpsc::channel(64);
         let (method, path, authority) = (
