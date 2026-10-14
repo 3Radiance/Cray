@@ -3,7 +3,6 @@ use serde::Deserialize;
 use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
-use std::task::ready;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -129,37 +128,67 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for FragmentStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        while let Some(up) = self.stages[self.idx].bytes {
-            if self.written >= up && self.idx + 1 < self.stages.len() {
-                self.idx += 1
-            } else {
-                break;
+        let mut offset = 0;
+
+        while offset < buf.len() {
+            let current_buf = &buf[offset..];
+
+            while let Some(up) = self.stages[self.idx].bytes {
+                if self.written >= up && self.idx + 1 < self.stages.len() {
+                    self.idx += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let st = &self.stages[self.idx];
+            let take = match st.bytes {
+                Some(up) if self.written >= up => current_buf.len(),
+                Some(up) => st
+                    .size
+                    .sample(current_buf.len())
+                    .min((up - self.written) as usize)
+                    .max(1),
+                None => st.size.sample(current_buf.len()),
+            }
+            .min(current_buf.len());
+
+            log_tag!(
+                trace,
+                "FRAG",
+                "stage: {}, written: {}, buf_len: {}, take: {}",
+                self.idx,
+                self.written,
+                current_buf.len(),
+                take
+            );
+
+            match Pin::new(&mut self.inner).poll_write(cx, &current_buf[..take]) {
+                Poll::Ready(Ok(n)) => {
+                    if n == 0 {
+                        return Poll::Ready(Ok(offset));
+                    }
+                    self.written += n as u64;
+                    offset += n;
+
+                    log_tag!(trace, "FRAG", "write {}", n);
+
+                    if n < take {
+                        break;
+                    }
+                }
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => {
+                    if offset > 0 {
+                        return Poll::Ready(Ok(offset));
+                    } else {
+                        return Poll::Pending;
+                    }
+                }
             }
         }
-        let st = &self.stages[self.idx];
-        let take = match st.bytes {
-            Some(up) if self.written >= up => buf.len(),
-            Some(up) => st
-                .size
-                .sample(buf.len())
-                .min((up - self.written) as usize)
-                .max(1),
-            None => st.size.sample(buf.len()),
-        }
-        .min(buf.len());
-        log_tag!(
-            trace,
-            "FRAG",
-            "stage: {}, written: {}, buf_len: {}, take: {}",
-            self.idx,
-            self.written,
-            buf.len(),
-            take
-        );
-        let n = ready!(Pin::new(&mut self.inner).poll_write(cx, &buf[..take]))?;
-        self.written += n as u64;
-        log_tag!(trace, "FRAG", "write {}", n);
-        Poll::Ready(Ok(n))
+
+        Poll::Ready(Ok(offset))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
