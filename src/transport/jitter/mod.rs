@@ -19,7 +19,7 @@ pub enum JitterDelay {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct JitterStage {
-    pub upto: Option<u64>,
+    pub bytes: Option<u64>,
     #[serde(deserialize_with = "deserialize_from_str")]
     pub delay: JitterDelay,
 }
@@ -94,7 +94,7 @@ impl<S> JitterStream<S> {
     }
 
     fn current_delay(&mut self) -> Duration {
-        while let Some(up) = self.stages[self.idx].upto {
+        while let Some(up) = self.stages[self.idx].bytes {
             if self.written >= up && self.idx + 1 < self.stages.len() {
                 self.idx += 1;
             } else {

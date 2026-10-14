@@ -105,7 +105,7 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 let d = match stages.as_deref() {
                     Some(s) => s.to_vec(),
                     None => vec![JitterStage {
-                        upto: None,
+                        bytes: None,
                         delay: JitterDelay::Fixed(Duration::ZERO),
                     }],
                 };
@@ -116,7 +116,7 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 let s = match stages.as_deref() {
                     Some(s) => s.to_vec(),
                     None => vec![FragStage {
-                        upto: None,
+                        bytes: None,
                         size: FragSize::Fixed(1400),
                     }],
                 };

@@ -19,7 +19,7 @@ pub enum FragSize {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct FragStage {
-    pub upto: Option<u64>,
+    pub bytes: Option<u64>,
     #[serde(deserialize_with = "deserialize_from_str")]
     pub size: FragSize,
 }
@@ -129,7 +129,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for FragmentStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        while let Some(up) = self.stages[self.idx].upto {
+        while let Some(up) = self.stages[self.idx].bytes {
             if self.written >= up && self.idx + 1 < self.stages.len() {
                 self.idx += 1
             } else {
@@ -137,7 +137,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for FragmentStream<S> {
             }
         }
         let st = &self.stages[self.idx];
-        let take = match st.upto {
+        let take = match st.bytes {
             Some(up) if self.written >= up => buf.len(),
             Some(up) => st
                 .size
