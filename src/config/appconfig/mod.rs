@@ -41,6 +41,12 @@ pub enum LayerConfig {
     Unix {
         addr: Option<String>,
     },
+    Jitter {
+        delay: Option<String>,
+    },
+    Fragment {
+        size: Option<String>,
+    },
 }
 impl LayerConfig {
     pub fn is_protocol(&self) -> bool {

@@ -22,7 +22,7 @@ impl Transport for Tls {
         W: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     {
         let (sni, config_path, http2_path) = ctx;
-        crate::log_tag!(info, "TLS", "Starting client TLS handshake for SNI {} using profile {}", sni, config_path);
+        crate::log_tag!(trace, "TLS", "Starting client TLS handshake for SNI {} using profile {}", sni, config_path);
 
         let connector = get_or_build_tls_connector(config_path).await?;
         let config = get_tls(config_path)?;
@@ -37,7 +37,7 @@ impl Transport for Tls {
         let boxed_wire: BoxedStream = Box::pin(wire);
         let mut remote = SslStream::new(ssl, boxed_wire)?;
         tokio::time::timeout(Duration::from_secs(6), Pin::new(&mut remote).connect()).await??;
-        crate::log_tag!(info, "TLS", "TLS client handshake completed for {}", sni);
+        crate::log_tag!(trace, "TLS", "TLS client handshake completed for {}", sni);
         Ok(remote)
     }
 
@@ -46,7 +46,7 @@ impl Transport for Tls {
         P: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     {
         let (cert_path, key_path, tls_path) = ctx;
-        crate::log_tag!(info, "TLS", "Starting server TLS handshake with cert {} and key {} using profile {}", cert_path, key_path, tls_path);
+        crate::log_tag!(trace, "TLS", "Starting server TLS handshake with cert {} and key {} using profile {}", cert_path, key_path, tls_path);
         let acceptor = get_or_load_tls_acceptor(cert_path, key_path, tls_path)?;
         let ssl = Ssl::new(acceptor.context())?;
         let boxed_plain: BoxedStream = Box::pin(plain);
@@ -59,7 +59,7 @@ impl Transport for Tls {
             return Err(e.into());
         }
 
-        crate::log_tag!(info, "TLS", "TLS server handshake completed");
+        crate::log_tag!(trace, "TLS", "TLS server handshake completed");
         Ok(Once::new(tls_stream))
     }
 }

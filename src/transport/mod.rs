@@ -7,8 +7,10 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 
+pub mod fragment;
 pub mod http;
 pub mod http2;
+pub mod jitter;
 pub mod tls;
 
 pub trait Transport: Send + Sync {

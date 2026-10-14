@@ -1,8 +1,12 @@
 use crate::config::appconfig::LayerConfig;
 use crate::transport;
 use crate::{
-    ConnectRequest, config::loader::get_config, outbound::Outbound, transport::BoxedStream,
+    ConnectRequest,
+    config::loader::get_config,
+    outbound::Outbound,
+    transport::BoxedStream,
     transport::Transport,
+    transport::{fragment, fragment::FragSize, jitter, jitter::JitterDelay},
 };
 use anyhow::{Result, bail};
 use tokio::net::{TcpStream, UnixStream};
@@ -98,6 +102,16 @@ impl Outbound for DefaultOut {
                         let mut config = config.to_owned();
                         let h2_stream = h2.client(stream, &mut config).await?;
                         Box::pin(h2_stream)
+                    }
+                    LayerConfig::Jitter { delay } => {
+                        let d: JitterDelay = delay.as_deref().unwrap_or("0").parse()?;
+                        let stream: BoxedStream = jitter::wrap(stream, d);
+                        Box::pin(stream)
+                    }
+                    LayerConfig::Fragment { size } => {
+                        let s: FragSize = size.as_deref().unwrap_or("1400").parse()?;
+                        let stream: BoxedStream = fragment::wrap(stream, s);
+                        Box::pin(stream)
                     }
                     _ => stream,
                 };
