@@ -19,7 +19,7 @@ Client (`outbound.layers`):
 ```
 tls stream ──▶ http2 layer ──▶ virtual stream ──▶ protocol
                  1. HTTP/2 handshake with the profiled builder (built once per profile
-                    file and cached, 5 second timeout)
+                    file and cached, 5 second timeout by default, `timeout` field)
                  2. one request: method + :authority + :path from the layer,
                     headers from the profile, END_STREAM is NOT set on HEADERS
                  3. the request body is the upload direction,
@@ -30,7 +30,7 @@ Server (`inbound.layers`):
 
 ```
 tls stream ──▶ http2 layer ──▶ one virtual stream per accepted request ──▶ protocol
-                 1. HTTP/2 server handshake (5 second timeout)
+                 1. HTTP/2 server handshake (5 second timeout by default, `timeout` field)
                  2. every request whose method, path and host match is answered 200
                     (content-type: application/octet-stream),
                     anything else is answered 404
@@ -65,6 +65,7 @@ config = "./http2.toml"
 | `method` | required: `POST` or `PUT` | required: requests must match, others get 404 |
 | `host` | required: request `:authority` | required: requests must match, others get 404 |
 | `config` | required: path to the HTTP/2 profile | not used |
+| `timeout` | seconds (`timeout = 5`) or preset name (`timeout = "h2"`); default 5 | same; default 5 |
 | scheme | always `https` | n/a |
 
 The profile is a separate file with only top-level keys (there is no `[http2]`
@@ -72,6 +73,23 @@ header). Relative paths are resolved against the process working directory. The
 profile is loaded on the first connection and cached by path, so errors in it
 show up then and edits need a restart. Keys that are not part of the profile are
 ignored silently.
+
+`timeout` covers only the layer handshake, not the connection lifetime. A preset
+name resolves through the `[timeouts]` table at the top of the config (details
+and defaults in the "Timeouts" section of [tls.md](tls.md)):
+
+```toml
+[timeouts]
+h2 = 4
+
+[[outbound.layers]]
+type = "http2"
+path = "/tun"
+host = "example.com"
+method = "POST"
+config = "./http2.toml"
+timeout = "h2"
+```
 
 ## Example profile (`http2.toml`)
 

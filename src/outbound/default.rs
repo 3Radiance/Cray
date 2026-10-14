@@ -1,4 +1,4 @@
-use crate::config::appconfig::LayerConfig;
+use crate::config::appconfig::{LayerConfig, with_timeout};
 use crate::log_tag;
 use crate::transport;
 use crate::{
@@ -29,21 +29,36 @@ impl Outbound for DefaultOut {
         let first_layer = &config.outbound.layers[0];
 
         let mut stream: BoxedStream = match first_layer {
-            LayerConfig::Tcp { addr } => match addr {
-                Some(fixed_addr) => {
-                    let s = TcpStream::connect(fixed_addr).await?;
-                    s.set_nodelay(true)?;
-                    Box::pin(s)
+            LayerConfig::Tcp { addr, timeout } => {
+                let dur = config.resolve_timeout(timeout.as_ref(), 5)?;
+                match addr {
+                    Some(fixed_addr) => {
+                        let s = with_timeout("tcp connect", dur, async {
+                            TcpStream::connect(fixed_addr).await.map_err(anyhow::Error::from)
+                        })
+                        .await?;
+                        s.set_nodelay(true)?;
+                        Box::pin(s)
+                    }
+                    None => {
+                        let s = with_timeout("tcp connect", dur, async {
+                            TcpStream::connect((t.addr.as_str(), t.port))
+                                .await
+                                .map_err(anyhow::Error::from)
+                        })
+                        .await?;
+                        s.set_nodelay(true)?;
+                        Box::pin(s)
+                    }
                 }
-                None => {
-                    let s = TcpStream::connect((t.addr.as_str(), t.port)).await?;
-                    s.set_nodelay(true)?;
-                    Box::pin(s)
-                }
-            },
-            LayerConfig::Unix { addr } => match addr {
+            }
+            LayerConfig::Unix { addr, timeout } => match addr {
                 Some(fixed_addr) => {
-                    let s = UnixStream::connect(fixed_addr).await?;
+                    let dur = config.resolve_timeout(timeout.as_ref(), 5)?;
+                    let s = with_timeout("unix connect", dur, async {
+                        UnixStream::connect(fixed_addr).await.map_err(anyhow::Error::from)
+                    })
+                    .await?;
                     Box::pin(s)
                 }
                 None => {
@@ -62,6 +77,7 @@ impl Outbound for DefaultOut {
                         sni,
                         tls_path,
                         http2_path,
+                        timeout,
                         ..
                     } => {
                         let (sni, config, h2_config) = match (
@@ -78,22 +94,26 @@ impl Outbound for DefaultOut {
                                 )
                             }
                         };
+                        let dur = get_config().resolve_timeout(timeout.as_ref(), 6)?;
                         let mut tls = transport::tls::Tls;
                         let mut ctx = (sni.to_owned(), config.to_owned(), h2_config.to_owned());
-                        let tls_stream = tls.client(stream, &mut ctx).await?;
+                        let tls_stream =
+                            with_timeout("tls handshake", dur, tls.client(stream, &mut ctx))
+                                .await?;
                         Box::pin(tls_stream)
                     }
                     LayerConfig::Http2 {
                         path,
                         host,
                         method,
-                        config,
+                        config: h2_profile,
+                        timeout,
                     } => {
-                        let (path, host, method, config) = match (
+                        let (path, host, method, profile) = match (
                             path.as_deref(),
                             host.as_deref(),
                             method.as_deref(),
-                            config.as_deref(),
+                            h2_profile.as_deref(),
                         ) {
                             (Some(p), Some(h), Some(m), Some(c)) => (p, h, m, c),
                             _ => {
@@ -102,13 +122,16 @@ impl Outbound for DefaultOut {
                                 )
                             }
                         };
+                        let dur = get_config().resolve_timeout(timeout.as_ref(), 5)?;
                         let mut h2 = transport::http2::H2 {
                             method: method.parse().unwrap(),
                             authority: host.to_string(),
                             path: path.to_string(),
                         };
-                        let mut config = config.to_owned();
-                        let h2_stream = h2.client(stream, &mut config).await?;
+                        let mut profile = profile.to_owned();
+                        let h2_stream =
+                            with_timeout("h2 handshake", dur, h2.client(stream, &mut profile))
+                                .await?;
                         Box::pin(h2_stream)
                     }
                     LayerConfig::Jitter { stages } => {

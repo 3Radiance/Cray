@@ -6,7 +6,6 @@ use crate::transport::{BoxedStream, Once, Transport};
 use anyhow::Result;
 use btls::ssl::Ssl;
 use std::pin::Pin;
-use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_btls::SslStream;
 
@@ -36,7 +35,7 @@ impl Transport for Tls {
         }
         let boxed_wire: BoxedStream = Box::pin(wire);
         let mut remote = SslStream::new(ssl, boxed_wire)?;
-        tokio::time::timeout(Duration::from_secs(6), Pin::new(&mut remote).connect()).await??;
+        Pin::new(&mut remote).connect().await?;
         crate::log_tag!(trace, "TLS", "TLS client handshake completed for {}", sni);
         Ok(remote)
     }
@@ -52,9 +51,7 @@ impl Transport for Tls {
         let boxed_plain: BoxedStream = Box::pin(plain);
         let mut tls_stream = SslStream::new(ssl, boxed_plain)?;
 
-        if let Err(e) =
-            tokio::time::timeout(Duration::from_secs(6), Pin::new(&mut tls_stream).accept()).await?
-        {
+        if let Err(e) = Pin::new(&mut tls_stream).accept().await {
             crate::log_tag!(error, "TLS", "Handshake failed: {}", e);
             return Err(e.into());
         }

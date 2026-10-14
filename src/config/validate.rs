@@ -40,11 +40,37 @@ pub fn validate(cfg: &AppConfig) -> Result<()> {
     match cfg.role {
         Role::Client => {
             check("inbound", &cfg.inbound.layers, Proto::Forbidden)?;
-            check("outbound", &cfg.outbound.layers, Proto::Required)
+            check("outbound", &cfg.outbound.layers, Proto::Required)?;
         }
         Role::Server => {
             check("inbound", &cfg.inbound.layers, Proto::Required)?;
-            check("outbound", &cfg.outbound.layers, Proto::Optional)
+            check("outbound", &cfg.outbound.layers, Proto::Optional)?;
         }
+    }
+    check_timeouts("inbound", cfg, &cfg.inbound.layers)?;
+    check_timeouts("outbound", cfg, &cfg.outbound.layers)
+}
+
+fn check_timeouts(name: &str, cfg: &AppConfig, layers: &[LayerConfig]) -> Result<()> {
+    for layer in layers {
+        if let Some(t) = AppConfig::layer_timeout(layer) {
+            cfg.resolve_timeout(Some(t), 1).map_err(|e| {
+                anyhow::anyhow!("{name}: invalid timeout for {:?}: {e:#}", layer_type(layer))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn layer_type(layer: &LayerConfig) -> &'static str {
+    match layer {
+        LayerConfig::Tcp { .. } => "tcp",
+        LayerConfig::Unix { .. } => "unix",
+        LayerConfig::HttpConnect => "http_connect",
+        LayerConfig::Http2 { .. } => "http2",
+        LayerConfig::Vless { .. } => "vless",
+        LayerConfig::Tls { .. } => "tls",
+        LayerConfig::Jitter { .. } => "jitter",
+        LayerConfig::Fragment { .. } => "fragment",
     }
 }

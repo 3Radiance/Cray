@@ -40,13 +40,13 @@ async fn main() -> Result<()> {
     };
 
     match first {
-        LayerConfig::Tcp { addr } => {
+        LayerConfig::Tcp { addr, .. } => {
             let addr = addr
                 .as_deref()
                 .ok_or_else(|| anyhow!("tcp inbound needs addr"))?;
             serve(Tcp::bind(addr).await?, transports, addr).await
         }
-        LayerConfig::Unix { addr } => {
+        LayerConfig::Unix { addr, .. } => {
             let addr = addr
                 .as_deref()
                 .ok_or_else(|| anyhow!("unix inbound needs addr"))?;

@@ -47,6 +47,7 @@ Layer fields:
 | `tls_path` | required: the fingerprint profile | required: only `alpn` is read |
 | `http2_path` | required, but the file is read only when `alps = true`; otherwise any placeholder string works | not used |
 | `cert`, `key` | not used | required: PEM certificate chain and private key |
+| `timeout` | seconds (`timeout = 6`) or preset name (`timeout = "tls"`); default 6 | same; default 6 |
 
 How the files are handled:
 
@@ -61,6 +62,32 @@ How the files are handled:
 
 TOML has no `null`. To leave an optional field unset, **omit the key**.
 
+## Timeouts
+
+The `timeout` field exists on the `tcp`, `unix`, `tls` and `http2` layers. The
+value is either seconds as a number or a preset name from the `[timeouts]` table
+at the top of the config:
+
+```toml
+[timeouts]
+tcp = 5
+tls = 10
+h2 = 4
+
+[[outbound.layers]]
+type = "tls"
+sni = "example.com"
+tls_path = "./tls.toml"
+http2_path = "./http2.toml"
+timeout = "tls"
+```
+
+The timeout covers the setup phase only: connecting for `tcp`/`unix`,
+the handshake for `tls`/`http2`. It never limits the connection lifetime.
+When the field is omitted, built-in defaults apply: `tcp`/`unix` — 5 s,
+`tls` — 6 s, `http2` — 5 s. An unknown preset name or zero fails config
+loading, so the proxy refuses to start.
+
 ## Connection flow
 
 Client (`outbound.layers`):
@@ -69,7 +96,7 @@ Client (`outbound.layers`):
 tcp socket ──▶ tls layer ──▶ next layer (http2, protocol, ...)
                  1. take the SslConnector for `tls_path` (built once per profile file, cached)
                  2. set SNI from the layer, attach ALPS payload if alps = true (reads http2_path)
-                 3. handshake with the profile, 6 second timeout
+                 3. handshake with the profile, 6 second timeout by default (see "Timeouts")
                  4. verify the server certificate, return the encrypted stream
 ```
 
@@ -79,7 +106,7 @@ Server (`inbound.layers`):
 tcp socket ──▶ tls layer ──▶ next layer (http2, protocol, ...)
                  1. SslAcceptor (mozilla_intermediate) with cert chain and key (built once per cert/key pair)
                  2. ALPN select callback, client preference order
-                 3. handshake, 6 second timeout
+                 3. handshake, 6 second timeout by default (see "Timeouts")
 ```
 
 The ALPN callback walks the client's list in order and picks the first protocol
