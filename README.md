@@ -47,7 +47,7 @@ The role changes the meaning of the layers: on the client, inbound is the browse
 | `http2` | Opens a POST/PUT request and exposes a **virtual stream**. | HTTP/2 server: accepts streams and passes each onward as a separate stream. |
 | `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
-| `tsf` | Protocol (test). | Protocol (test). |
+| `vless` | Protocol: VLESS-style header with UUID authentication (TCP). | Same. |
 
 The `http2` layer, or any multiplexing transport, takes a socket and exposes a virtual stream. The protocol therefore does not care what is underneath it: raw TCP, TLS, or HTTP/2. It simply reads from and writes to a stream.
 
@@ -83,8 +83,8 @@ method = "POST"
 config = "./http2.toml"
 
 [[outbound.layers]]
-type = "tsf"      # the protocol is always last
-magic = 432
+type = "vless"     # the protocol is always last
+uuid = "11111111-1111-4111-8111-111111111111"   # placeholder, generate your own
 ```
 
 What happens:
@@ -115,8 +115,8 @@ host = "idk.com"
 method = "POST"
 
 [[inbound.layers]]
-type = "tsf"
-magic = 432
+type = "vless"
+uuid = "11111111-1111-4111-8111-111111111111"   # the same UUID as on the client
 
 [[outbound.layers]]
 type = "tcp"        # no address: connect to the destination requested by the protocol
@@ -189,6 +189,8 @@ cd conf          # profile paths such as ./tls.toml are relative to the working 
 
 The example configs and profiles live in [`conf/`](conf/).
 
+Generate your own UUID with `cargo run --bin gen_uuid` and put it into the `uuid` field of the `vless` layer on both sides. The UUIDs in the examples are placeholders, do not use them.
+
 ### Logging
 
 The default level is `debug`. Set `RUST_LOG` to change it, globally or per tag:
@@ -207,12 +209,12 @@ Tags: `CFG`, `INB`, `LISTEN`, `CHAIN`, `TLS`, `H2`, `TCP`, `TSF`, `CERT`, `JITTE
 Working:
 - `tcp`, `unix`, `tls`, `http2`, and `http_connect` layers, plus the `jitter` and `fragment` shaping wrappers;
 - Building client and server layer chains from config and validating layer order;
-- The test protocol `tsf`.
+- The `vless` protocol (TCP command, UUID authentication).
 
-> ⚠️ `tsf` is a **test protocol with no authentication**. Do not use it on real networks.
+> ⚠️ `vless` follows the VLESS header layout only partly and is **not interoperable** with Xray, sing-box or other VLESS clients yet. Differences: domain and IPv6 address types use the SOCKS5-style codes 3 and 4 (VLESS uses 2 and 3), the server sends no response header, request addons are assumed to be empty, and only the TCP command is supported. A Cray client works with a Cray server. The UUID is the only credential, and there is no replay protection yet.
 
 **Plans:**
-1. A proper protocol with authentication and replay protection (nonce cache).
+1. Full VLESS wire compatibility (see the warning above), UDP and Mux commands, and replay protection (nonce cache).
 2. `auth/`: verifiers and generators.
 3. Two-level verification: level 1 on the nginx side (HMAC cookie, timestamp; if no cookie is present, serve a genuine static website), level 2 in the protocol (on rejection, show a mirror of the real error page rather than a TCP RST).
 4. A declarative protocol description language (DSL) for people who do not want to write Rust code. Rust authors retain full flexibility; the DSL is limited to a closed set of verifiers.
