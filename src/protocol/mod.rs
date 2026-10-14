@@ -2,9 +2,11 @@ use crate::ConnectRequest;
 use crate::config::appconfig::LayerConfig;
 use anyhow::{Result, bail};
 use std::future::Future;
+use std::str::FromStr;
 use tokio::io::{AsyncRead, AsyncWrite};
+use uuid::Uuid;
 
-pub mod tsf;
+pub mod vless;
 
 pub trait Protocol: Send + Sync {
     type Context;
@@ -32,15 +34,21 @@ pub trait Protocol: Send + Sync {
 
 pub fn proto_builder(layer: &LayerConfig) -> Result<ProtoVariant> {
     match layer {
-        LayerConfig::Tsf { magic: Some(magic) } => {
-            Ok(ProtoVariant::Tsf(tsf::Tsf { magic: *magic }))
-        }
+        LayerConfig::Vless { uuid } => match uuid {
+            Some(uuid) => {
+                let uuid = Uuid::from_str(uuid)?;
+                Ok(ProtoVariant::Vless(vless::Vless {
+                    uuid: uuid.as_bytes().to_owned(),
+                }))
+            }
+            None => bail!("Vless uuid is not provided"),
+        },
         _ => bail!("Invalid protocol layer"),
     }
 }
 
 pub enum ProtoVariant {
-    Tsf(tsf::Tsf),
+    Vless(vless::Vless),
 }
 
 impl Protocol for ProtoVariant {
@@ -59,7 +67,7 @@ impl Protocol for ProtoVariant {
         W: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
         match self {
-            ProtoVariant::Tsf(p) => Box::pin(p.client(plain, wire, t, ctx)),
+            ProtoVariant::Vless(p) => Box::pin(p.client(plain, wire, t, ctx)),
             // ProtoVariant::Custom_proto(p) => Box::pin(p.client(plain, wire, t, ctx)),
         }
     }
@@ -73,7 +81,7 @@ impl Protocol for ProtoVariant {
         W: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
         match self {
-            ProtoVariant::Tsf(p) => Box::pin(p.server(wire, ctx)),
+            ProtoVariant::Vless(p) => Box::pin(p.server(wire, ctx)),
             // ProtoVariant::Сustom_proto(p) => Box::pin(p.server(wire, ctx)),
         }
     }
