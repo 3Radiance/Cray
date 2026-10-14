@@ -115,7 +115,7 @@ impl Outbound for DefaultOut {
                         let s = match stages.as_deref() {
                             Some(s) => s.to_vec(),
                             None => vec![JitterStage {
-                                upto: None,
+                                bytes: None,
                                 delay: JitterDelay::Fixed(Duration::ZERO),
                             }],
                         };
@@ -126,7 +126,7 @@ impl Outbound for DefaultOut {
                         let s = match stages.as_deref() {
                             Some(s) => s.to_vec(),
                             None => vec![FragStage {
-                                upto: None,
+                                bytes: None,
                                 size: FragSize::Fixed(1400),
                             }],
                         };
