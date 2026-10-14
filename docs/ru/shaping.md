@@ -18,8 +18,8 @@ type = "jitter"
 delay = "10-20"
 
 [[outbound.layers]]
-type = "tsf"
-magic = 432
+type = "vless"
+uuid = "11111111-1111-4111-8111-111111111111"
 ```
 
 ## `jitter`
