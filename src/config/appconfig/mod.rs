@@ -28,8 +28,8 @@ pub enum LayerConfig {
         method: Option<String>,
         config: Option<String>,
     },
-    Tsf {
-        magic: Option<u16>,
+    Vless {
+        uuid: Option<String>,
     },
     Tls {
         sni: Option<String>,
@@ -50,7 +50,7 @@ pub enum LayerConfig {
 }
 impl LayerConfig {
     pub fn is_protocol(&self) -> bool {
-        matches!(self, LayerConfig::Tsf { .. })
+        matches!(self, LayerConfig::Vless { .. })
     }
 }
 

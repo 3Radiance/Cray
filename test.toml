@@ -20,5 +20,5 @@ type = "fragment"
 size = "500-1000"
 
 [[outbound.layers]]
-type = "tsf"
-magic = 432
+type = "vless"
+uuid = "3adf4977-49b2-4964-9e2b-ca66724160a4"
