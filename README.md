@@ -45,6 +45,8 @@ The role changes the meaning of the layers: on the client, inbound is the browse
 | `http_connect` | Accepts HTTP CONNECT from the browser and extracts the destination address. | Not used. |
 | `tls` | Client handshake: `sni` and a configurable fingerprint. | Acceptor: performs a handshake using your certificates. |
 | `http2` | Opens a POST/PUT request and exposes a **virtual stream**. | HTTP/2 server: accepts streams and passes each onward as a separate stream. |
+| `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
+| `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `tsf` | Protocol (test). | Protocol (test). |
 
 The `http2` layer, or any multiplexing transport, takes a socket and exposes a virtual stream. The protocol therefore does not care what is underneath it: raw TCP, TLS, or HTTP/2. It simply reads from and writes to a stream.
@@ -123,7 +125,7 @@ type = "tcp"        # no address: connect to the destination requested by the pr
 The same layers are used here, but they act as acceptors:
 
 - `tls` accepts the socket, performs a handshake using your certificates, and passes it onward;
-- `http2` is an HTTP/2 server: it accepts only requests whose `method` and `path` match, and returns 404 to others (`host` is not checked yet);
+- `http2` is an HTTP/2 server: it accepts only requests whose `method`, `path` and `host` match, and returns 404 to others;
 - the **server-side protocol function** is then called and given the stream;
 - `tcp` in outbound, when no address is specified, connects to the destination provided by the protocol.
 
@@ -165,7 +167,7 @@ On the server, HTTP/2 requires `alpn = ["h2"]` in the profile that the `tls` lay
 | Module | Purpose |
 |---|---|
 | `inbound/` | Inbound layers: `tcp`, `unix`, `http_connect`, as well as custom ones (e.g. SOCKS5). |
-| `transport/` | Transport layers: `tls`, `http2`. |
+| `transport/` | Transport layers: `tls`, `http2`, and the shaping wrappers `jitter` and `fragment`. |
 | `protocol/` | Protocol: the final layer in the chain. |
 | `outbound/` | Outbound: a direct connection or a chain of layers. |
 | `auth/` | Basic cryptography and authentication methods (under development). |
@@ -180,16 +182,30 @@ Building requires Rust, `cmake`, and a C/C++ compiler (TLS is built on BoringSSL
 
 ```bash
 cargo build --release
-./target/release/cray --config client.toml
-./target/release/cray --config server.toml
+cd conf          # profile paths such as ./tls.toml are relative to the working directory
+../target/release/cray --config client.toml
+../target/release/cray --config server.toml
 ```
+
+The example configs and profiles live in [`conf/`](conf/).
+
+### Logging
+
+The default level is `debug`. Set `RUST_LOG` to change it, globally or per tag:
+
+```bash
+RUST_LOG=info ./cray --config server.toml
+RUST_LOG=info,H2=debug,FRAG=trace ./cray --config client.toml
+```
+
+Tags: `CFG`, `INB`, `LISTEN`, `CHAIN`, `TLS`, `H2`, `TCP`, `TSF`, `CERT`, `JITTER`, `FRAG`. Per-connection details are logged at `debug` and `trace`, so `info` stays quiet.
 
 ---
 
 ## Status
 
 Working:
-- `tcp`, `unix`, `tls`, `http2`, and `http_connect` layers;
+- `tcp`, `unix`, `tls`, `http2`, and `http_connect` layers, plus the `jitter` and `fragment` shaping wrappers;
 - Building client and server layer chains from config and validating layer order;
 - The test protocol `tsf`.
 
