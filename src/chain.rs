@@ -4,12 +4,17 @@ use crate::inbound::Inbound;
 use crate::outbound::{Outbound, default::DefaultOut};
 use crate::protocol::*;
 use crate::transport::{
-    BoxedStream, Incoming, Transport, fragment, fragment::FragSize, http2::H2, jitter,
-    jitter::JitterDelay, tls::Tls,
+    BoxedStream, Incoming, Transport, fragment,
+    fragment::{FragSize, FragStage},
+    http2::H2,
+    jitter,
+    jitter::{JitterDelay, JitterStage},
+    tls::Tls,
 };
 use crate::{ConnectRequest, ConnectResult, log_tag};
 use anyhow::{Result, anyhow, bail};
 use std::{future::Future, pin::Pin, sync::Arc};
+use tokio::time::Duration;
 
 type BoxFut = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 type Req = Arc<Option<ConnectRequest>>;
@@ -96,13 +101,25 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 let incoming = h2.server(stream, &mut ()).await?;
                 fan!(incoming, rest, req)
             }
-            LayerConfig::Jitter { delay } => {
-                let d: JitterDelay = delay.as_deref().unwrap_or("0").parse()?;
+            LayerConfig::Jitter { stages } => {
+                let d = match stages.as_deref() {
+                    Some(s) => s.to_vec(),
+                    None => vec![JitterStage {
+                        upto: None,
+                        delay: JitterDelay::Fixed(Duration::ZERO),
+                    }],
+                };
                 let stream: BoxedStream = jitter::wrap(stream, d);
                 run_with(rest, stream, req).await
             }
-            LayerConfig::Fragment { size } => {
-                let s: FragSize = size.as_deref().unwrap_or("1400").parse()?;
+            LayerConfig::Fragment { stages } => {
+                let s = match stages.as_deref() {
+                    Some(s) => s.to_vec(),
+                    None => vec![FragStage {
+                        upto: None,
+                        size: FragSize::Fixed(1400),
+                    }],
+                };
                 let stream: BoxedStream = fragment::wrap(stream, s);
                 run_with(rest, stream, req).await
             }

@@ -1,4 +1,5 @@
 use crate::config::appconfig::LayerConfig;
+use crate::log_tag;
 use crate::transport;
 use crate::{
     ConnectRequest,
@@ -6,10 +7,16 @@ use crate::{
     outbound::Outbound,
     transport::BoxedStream,
     transport::Transport,
-    transport::{fragment, fragment::FragSize, jitter, jitter::JitterDelay},
+    transport::{
+        fragment,
+        fragment::{FragSize, FragStage},
+        jitter,
+        jitter::{JitterDelay, JitterStage},
+    },
 };
 use anyhow::{Result, bail};
 use tokio::net::{TcpStream, UnixStream};
+use tokio::time::Duration;
 
 pub struct DefaultOut;
 impl Outbound for DefaultOut {
@@ -49,6 +56,7 @@ impl Outbound for DefaultOut {
 
         if config.outbound.layers.len() > 1 {
             for layer in config.outbound.layers.iter().skip(1) {
+                log_tag!(debug, "CHAIN", "Processing Outbound layer: {:?}", layer);
                 stream = match layer {
                     LayerConfig::Tls {
                         sni,
@@ -103,13 +111,25 @@ impl Outbound for DefaultOut {
                         let h2_stream = h2.client(stream, &mut config).await?;
                         Box::pin(h2_stream)
                     }
-                    LayerConfig::Jitter { delay } => {
-                        let d: JitterDelay = delay.as_deref().unwrap_or("0").parse()?;
-                        let stream: BoxedStream = jitter::wrap(stream, d);
+                    LayerConfig::Jitter { stages } => {
+                        let s = match stages.as_deref() {
+                            Some(s) => s.to_vec(),
+                            None => vec![JitterStage {
+                                upto: None,
+                                delay: JitterDelay::Fixed(Duration::ZERO),
+                            }],
+                        };
+                        let stream: BoxedStream = jitter::wrap(stream, s);
                         Box::pin(stream)
                     }
-                    LayerConfig::Fragment { size } => {
-                        let s: FragSize = size.as_deref().unwrap_or("1400").parse()?;
+                    LayerConfig::Fragment { stages } => {
+                        let s = match stages.as_deref() {
+                            Some(s) => s.to_vec(),
+                            None => vec![FragStage {
+                                upto: None,
+                                size: FragSize::Fixed(1400),
+                            }],
+                        };
                         let stream: BoxedStream = fragment::wrap(stream, s);
                         Box::pin(stream)
                     }

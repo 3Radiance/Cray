@@ -1,20 +1,31 @@
+use fastrand;
+use serde::Deserialize;
+use serde::Deserializer;
 use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll, ready};
-use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::time::{Sleep, sleep};
+use tokio::time::{Duration, Instant, Sleep};
 
-#[derive(Debug, Clone)]
+use crate::log_tag;
+
+#[derive(Debug, Deserialize, Clone)]
 pub enum JitterDelay {
     Fixed(Duration),
     Range(Duration, Duration),
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct JitterStage {
+    pub upto: Option<u64>,
+    #[serde(deserialize_with = "deserialize_from_str")]
+    pub delay: JitterDelay,
+}
+
 impl JitterDelay {
-    pub fn sample(&self) -> Duration {
+    pub fn sample(&self, rng: &mut fastrand::Rng) -> Duration {
         match self {
             JitterDelay::Fixed(d) => *d,
             JitterDelay::Range(min, max) => {
@@ -22,7 +33,7 @@ impl JitterDelay {
                 if range_ms == 0 {
                     return *min;
                 }
-                *min + Duration::from_millis(lcg_rand() % range_ms)
+                *min + Duration::from_millis(rng.u64(0..=range_ms))
             }
         }
     }
@@ -58,21 +69,44 @@ impl FromStr for JitterDelay {
 
 pub struct JitterStream<S> {
     inner: S,
-    delay: JitterDelay,
-    sleep: Option<Pin<Box<Sleep>>>,
+    stages: Vec<JitterStage>,
+    idx: usize,
+    written: u64,
+    slept: bool,
+    armed: bool,
+    sleep: Pin<Box<Sleep>>,
+    rng: fastrand::Rng,
 }
 
 impl<S> JitterStream<S> {
-    pub fn new(inner: S, delay: JitterDelay) -> Self {
+    pub fn new(inner: S, stages: Vec<JitterStage>) -> Self {
+        let initial_sleep = Box::pin(tokio::time::sleep(Duration::ZERO));
         Self {
             inner,
-            delay,
-            sleep: None,
+            stages: stages.into(),
+            idx: 0,
+            written: 0,
+            slept: false,
+            armed: false,
+            sleep: initial_sleep,
+            rng: fastrand::Rng::new(),
         }
+    }
+
+    fn current_delay(&mut self) -> Duration {
+        while let Some(up) = self.stages[self.idx].upto {
+            if self.written >= up && self.idx + 1 < self.stages.len() {
+                self.idx += 1;
+            } else {
+                break;
+            }
+        }
+        let st = &self.stages[self.idx];
+        st.delay.sample(&mut self.rng)
     }
 }
 
-pub fn wrap<S>(inner: S, delay: JitterDelay) -> Pin<Box<JitterStream<S>>>
+pub fn wrap<S>(inner: S, delay: Vec<JitterStage>) -> Pin<Box<JitterStream<S>>>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -95,31 +129,44 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for JitterStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        if self.sleep.is_none() {
-            let dur = self.delay.sample();
-            crate::log_tag!(
-                trace,
-                "JITTER",
-                "write {} bytes, sleeping {:?}",
-                buf.len(),
-                dur
-            );
-            self.sleep = Some(Box::pin(sleep(dur)));
+        if !self.slept {
+            if !self.armed {
+                let d = self.current_delay();
+                if d.is_zero() {
+                    log_tag!(
+                        trace,
+                        "JITTER",
+                        "zero delay for stage index {}, skipping sleep",
+                        self.idx
+                    );
+                    self.slept = true;
+                } else {
+                    log_tag!(
+                        trace,
+                        "JITTER",
+                        "Delay for stage index {}, sleeping for {:?}",
+                        self.idx,
+                        d
+                    );
+                    self.sleep.as_mut().reset(Instant::now() + d);
+                    self.armed = true;
+                }
+            }
+            if self.armed {
+                ready!(self.sleep.as_mut().poll(cx));
+                self.armed = false;
+                self.slept = true;
+            }
         }
 
-        {
-            let sl = self.sleep.as_mut().unwrap();
-            ready!(sl.as_mut().poll(cx));
-        }
+        let r = ready!(Pin::new(&mut self.inner).poll_write(cx, buf));
+        self.slept = false;
 
-        self.sleep = None;
-        crate::log_tag!(
-            trace,
-            "JITTER",
-            "sleep done, forwarding {} bytes",
-            buf.len()
-        );
-        Pin::new(&mut self.inner).poll_write(cx, buf)
+        if let Ok(n) = r {
+            log_tag!(trace, "JITTER", "write {n}");
+            self.written += n as u64;
+        }
+        Poll::Ready(r)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -149,4 +196,14 @@ pub(crate) fn lcg_rand() -> u64 {
     STATE.store(state, Ordering::Relaxed);
 
     state >> 33
+}
+
+pub(crate) fn deserialize_from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    T::from_str(&s).map_err(serde::de::Error::custom)
 }

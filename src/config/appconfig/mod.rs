@@ -1,3 +1,5 @@
+use crate::transport::fragment::FragStage;
+use crate::transport::jitter::JitterStage;
 use anyhow::Result;
 use serde::Deserialize;
 
@@ -42,10 +44,10 @@ pub enum LayerConfig {
         addr: Option<String>,
     },
     Jitter {
-        delay: Option<String>,
+        stages: Option<Vec<JitterStage>>,
     },
     Fragment {
-        size: Option<String>,
+        stages: Option<Vec<FragStage>>,
     },
 }
 impl LayerConfig {

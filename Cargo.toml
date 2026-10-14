@@ -26,3 +26,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
 clap = { version = "4.5", features = ["derive"] }
 dashmap = "6.2.1"
 uuid = { version = "1.8", features = ["v4"] }
+fastrand = "2.5.0"

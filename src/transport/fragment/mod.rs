@@ -1,16 +1,27 @@
+use crate::transport::jitter::deserialize_from_str;
+use serde::Deserialize;
 use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
+use std::task::ready;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::log_tag;
 use crate::transport::jitter::lcg_rand;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum FragSize {
     Fixed(usize),
     Range(usize, usize),
     Percent(u8),
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FragStage {
+    pub upto: Option<u64>,
+    #[serde(deserialize_with = "deserialize_from_str")]
+    pub size: FragSize,
 }
 
 impl FragSize {
@@ -79,20 +90,27 @@ impl FromStr for FragSize {
 
 pub struct FragmentStream<S> {
     inner: S,
-    frag_size: FragSize,
+    stages: Vec<FragStage>,
+    idx: usize,
+    written: u64,
 }
 
 impl<S> FragmentStream<S> {
-    pub fn new(inner: S, frag_size: FragSize) -> Self {
-        Self { inner, frag_size }
+    pub fn new(inner: S, stages: Vec<FragStage>) -> Self {
+        Self {
+            inner,
+            stages,
+            idx: 0,
+            written: 0,
+        }
     }
 }
 
-pub fn wrap<S>(inner: S, frag_size: FragSize) -> Pin<Box<FragmentStream<S>>>
+pub fn wrap<S>(inner: S, stages: Vec<FragStage>) -> Pin<Box<FragmentStream<S>>>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    Box::pin(FragmentStream::new(inner, frag_size))
+    Box::pin(FragmentStream::new(inner, stages))
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for FragmentStream<S> {
@@ -111,15 +129,37 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for FragmentStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let size = self.frag_size.sample(buf.len());
-        crate::log_tag!(
+        while let Some(up) = self.stages[self.idx].upto {
+            if self.written >= up && self.idx + 1 < self.stages.len() {
+                self.idx += 1
+            } else {
+                break;
+            }
+        }
+        let st = &self.stages[self.idx];
+        let take = match st.upto {
+            Some(up) if self.written >= up => buf.len(),
+            Some(up) => st
+                .size
+                .sample(buf.len())
+                .min((up - self.written) as usize)
+                .max(1),
+            None => st.size.sample(buf.len()),
+        }
+        .min(buf.len());
+        log_tag!(
             trace,
             "FRAG",
-            "write {} bytes, fragment size {}",
+            "stage: {}, written: {}, buf_len: {}, take: {}",
+            self.idx,
+            self.written,
             buf.len(),
-            size
+            take
         );
-        Pin::new(&mut self.inner).poll_write(cx, &buf[..size])
+        let n = ready!(Pin::new(&mut self.inner).poll_write(cx, &buf[..take]))?;
+        self.written += n as u64;
+        log_tag!(trace, "FRAG", "write {}", n);
+        Poll::Ready(Ok(n))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
