@@ -31,7 +31,7 @@ Server (`inbound.layers`):
 ```
 tls stream ──▶ http2 layer ──▶ one virtual stream per accepted request ──▶ protocol
                  1. HTTP/2 server handshake (5 second timeout)
-                 2. every request whose method and path match is answered 200
+                 2. every request whose method, path and host match is answered 200
                     (content-type: application/octet-stream),
                     anything else is answered 404
                  3. each accepted request becomes an independent byte stream
@@ -63,7 +63,7 @@ config = "./http2.toml"
 |---|---|---|
 | `path` | required: request `:path` | required: requests must match, others get 404 |
 | `method` | required: `POST` or `PUT` | required: requests must match, others get 404 |
-| `host` | required: request `:authority` | required but not checked yet; kept so both sides share one description |
+| `host` | required: request `:authority` | required: requests must match, others get 404 |
 | `config` | required: path to the HTTP/2 profile | not used |
 | scheme | always `https` | n/a |
 
@@ -283,9 +283,12 @@ frame and the ALPS payload is itself a fingerprint signal.
   connection. Prefer to omit it and let it derive.
 - `http_headers` keys must be lowercase, and every header must be listed in
   `headers_order` to get a defined position.
-- The server accepts only requests whose method and path match the layer;
-  everything else gets 404. A client and a server with different `path` or
-  `method` values never connect.
+- The server accepts only requests whose method, path and host match the layer;
+  everything else gets 404. A client and a server with different `path`,
+  `method` or `host` values never connect.
+- The server compares `host` with the host part of `:authority`, without the
+  port. Write `host = "example.com"`, not `"example.com:443"`. Behind a reverse
+  proxy the value is whatever the proxy forwards as `:authority`.
 - The client `http2` layer needs `config`. The TLS layer needs `http2_path`
   only when `alps = true`; point both at the same file.
 - Unknown keys are ignored without any warning (this includes the former
