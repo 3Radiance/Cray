@@ -60,7 +60,7 @@ pub fn get_or_load_tls_acceptor(
         return Ok(Arc::clone(&acceptor));
     }
 
-    crate::log_tag!(info, "TLS", "Building TLS acceptor for cert {} and key {}", cert_path, key_path);
+    crate::log_tag!(debug, "TLS", "Building TLS acceptor for cert {} and key {}", cert_path, key_path);
     let pair = CertPair::load(cert_path, key_path)?;
     let tls_config = get_tls(config_path)?;
     let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
@@ -94,7 +94,7 @@ pub async fn get_or_build_tls_connector(profile_path: &str) -> Result<Arc<SslCon
         crate::log_tag!(debug, "TLS", "Using cached TLS connector for profile {}", profile_path);
         return Ok(Arc::clone(&c));
     }
-    crate::log_tag!(info, "TLS", "Building TLS connector for profile {}", profile_path);
+    crate::log_tag!(debug, "TLS", "Building TLS connector for profile {}", profile_path);
     let built = Arc::new(tls_builder(profile_path).await?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)
@@ -110,7 +110,7 @@ pub fn get_or_build_http2(profile_path: &str) -> Result<Arc<http2::client::Build
         crate::log_tag!(debug, "H2", "Using cached HTTP/2 builder for profile {}", profile_path);
         return Ok(Arc::clone(&c));
     }
-    crate::log_tag!(info, "H2", "Building HTTP/2 builder for profile {}", profile_path);
+    crate::log_tag!(debug, "H2", "Building HTTP/2 builder for profile {}", profile_path);
     let built = Arc::new(http2_builder(profile_path)?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)

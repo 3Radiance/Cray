@@ -3,7 +3,10 @@ use crate::config::loader::get_config;
 use crate::inbound::Inbound;
 use crate::outbound::{Outbound, default::DefaultOut};
 use crate::protocol::*;
-use crate::transport::{BoxedStream, Incoming, Transport, http2::H2, tls::Tls};
+use crate::transport::{
+    BoxedStream, Incoming, Transport, fragment, fragment::FragSize, http2::H2, jitter,
+    jitter::JitterDelay, tls::Tls,
+};
 use crate::{ConnectRequest, ConnectResult, log_tag};
 use anyhow::{Result, anyhow, bail};
 use std::{future::Future, pin::Pin, sync::Arc};
@@ -44,7 +47,7 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
             LayerConfig::HttpConnect => {
                 let inb = crate::inbound::http_connect::HttpRequest;
                 let r = inb.handshake(&mut stream).await?;
-                log_tag!(info, "CHAIN", "HTTP CONNECT request: {:?}", r);
+                log_tag!(debug, "CHAIN", "HTTP CONNECT request: {:?}", r);
                 inb.reply(&mut stream, ConnectResult::Ok).await?;
                 run_with(rest, stream, Arc::new(Some(r))).await
             }
@@ -93,6 +96,16 @@ fn run_with(layers: &'static [LayerConfig], mut stream: BoxedStream, req: Req) -
                 let incoming = h2.server(stream, &mut ()).await?;
                 fan!(incoming, rest, req)
             }
+            LayerConfig::Jitter { delay } => {
+                let d: JitterDelay = delay.as_deref().unwrap_or("0").parse()?;
+                let stream: BoxedStream = jitter::wrap(stream, d);
+                run_with(rest, stream, req).await
+            }
+            LayerConfig::Fragment { size } => {
+                let s: FragSize = size.as_deref().unwrap_or("1400").parse()?;
+                let stream: BoxedStream = fragment::wrap(stream, s);
+                run_with(rest, stream, req).await
+            }
             other => bail!("layer {:?} is not valid in this chain", other),
         }
     })
@@ -106,7 +119,7 @@ async fn finish(stream: BoxedStream, req: Req) -> Result<()> {
     };
 
     let mut proto = if let Some(layer) = proto_layer {
-        log_tag!(info, "CHAIN", "Using protocol layer: {:?}", layer);
+        log_tag!(debug, "CHAIN", "Using protocol layer: {:?}", layer);
         proto_builder(layer)?
     } else {
         bail!("No protocol layer found");
@@ -119,12 +132,18 @@ async fn finish(stream: BoxedStream, req: Req) -> Result<()> {
             let r = (*req)
                 .as_ref()
                 .ok_or_else(|| anyhow!("no ConnectRequest"))?;
-            log_tag!(info, "CHAIN", "Client role: connecting to {}:{}", r.addr, r.port);
+            log_tag!(
+                debug,
+                "CHAIN",
+                "Client role: connecting to {}:{}",
+                r.addr,
+                r.port
+            );
             let out = DefaultOut.connect(r).await?;
             proto.client(stream, out, r, &mut ctx).await?;
         }
         Role::Server => {
-            log_tag!(info, "CHAIN", "Server role: handling incoming stream");
+            log_tag!(debug, "CHAIN", "Server role: handling incoming stream");
             proto.server(stream, &mut ctx).await?;
         }
     }

@@ -1,0 +1,24 @@
+role = "client"
+
+[[inbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:10810"
+
+[[inbound.layers]]
+type = "http_connect"
+
+[[outbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:10811"
+
+[[outbound.layers]]
+type = "jitter"
+delay = "10-20"
+
+[[outbound.layers]]
+type = "fragment"
+size = "500-1000"
+
+[[outbound.layers]]
+type = "tsf"
+magic = 432

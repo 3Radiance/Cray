@@ -22,7 +22,7 @@ impl Listener for Tcp {
     async fn accept(&self) -> Result<(Self::Stream, Self::Addr)> {
         let (stream, peer) = self.listener.accept().await?;
         stream.set_nodelay(true)?;
-        crate::log_tag!(info, "INB", "Accepted TCP connection from {}", peer);
+        crate::log_tag!(debug, "INB", "Accepted TCP connection from {}", peer);
         Ok((stream, peer))
     }
 }

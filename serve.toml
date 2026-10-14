@@ -1,0 +1,20 @@
+role = "server"
+
+[[inbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:10811"
+
+[[inbound.layers]]
+type = "jitter"
+delay = "20-30"
+
+[[inbound.layers]]
+type = "fragment"
+size = "1000-1400"
+
+[[inbound.layers]]
+type = "tsf"
+magic = 432
+
+[[outbound.layers]]
+type = "tcp"                 # direct

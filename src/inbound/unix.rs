@@ -24,7 +24,7 @@ impl Listener for Unix {
 
     async fn accept(&self) -> Result<(Self::Stream, Self::Addr)> {
         let (stream, peer) = self.listener.accept().await?;
-        crate::log_tag!(info, "INB", "Accepted Unix connection from {:?}", peer);
+        crate::log_tag!(debug, "INB", "Accepted Unix connection from {:?}", peer);
         Ok((stream, peer))
     }
 }

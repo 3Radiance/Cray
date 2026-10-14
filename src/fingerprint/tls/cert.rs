@@ -40,7 +40,7 @@ impl CertPair {
             .map_err(|e| anyhow!("Failed to parse private key (is it PKCS#8?): {e}"))?;
 
         crate::log_tag!(
-            info,
+            trace,
             "CERT",
             "Successfully loaded TLS cert chain and private key"
         );
