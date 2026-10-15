@@ -1,0 +1,14 @@
+[package]
+name = "cray"
+version.workspace = true
+edition.workspace = true
+default-run = "cray"
+
+[dependencies]
+cray-core.workspace = true
+cray-layers.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true

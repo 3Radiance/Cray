@@ -1,0 +1,16 @@
+[package]
+name = "cray-layers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cray-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+toml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+fastrand.workspace = true
+httparse.workspace = true
+bytes.workspace = true
