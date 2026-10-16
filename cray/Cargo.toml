@@ -13,3 +13,5 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
 uuid.workspace = true
+rand.workspace = true
+hex.workspace = true

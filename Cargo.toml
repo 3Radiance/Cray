@@ -15,6 +15,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter","chrono"] }
 clap = { version = "4.5", features = ["derive"] }
 uuid = { version = "1.8", features = ["v4"] }
+rand = "0.9"
+hex = "0.4"
 fastrand = "2.5.0"
 httparse = "1.8"
 bytes = "1.12.1"
@@ -29,6 +31,8 @@ flate2 = "1"
 zstd = "0.14"
 foreign-types-shared = "0.3"
 dashmap = "6.2.1"
+hmac = "0.12"
+sha2 = "0.10"
 
 cray-core = { path = "core" }
 cray-layers = { path = "layers" }

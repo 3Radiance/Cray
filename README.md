@@ -29,7 +29,7 @@ The configuration is a TOML file with two layer chains:
 - **`inbound.layers`**: how to accept a connection;
 - **`outbound.layers`**: how to connect onward.
 
-There is no `client`/`server` flag: behavior follows position. Inbound layers listen and accept, outbound layers dial. A terminal (protocol) layer at the end of outbound means this side initiates (client); at the end of inbound, it means this side accepts (server).
+There is no `client`/`server` flag anymore: behavior follows position. Inbound layers listen and accept, outbound layers dial. A terminal (protocol) layer at the end of outbound means this side initiates (client); at the end of inbound, it means this side accepts (server).
 
 **Chain rules:**
 - The first layer is the connection source (`tcp` or `unix`);
@@ -48,6 +48,9 @@ There is no `client`/`server` flag: behavior follows position. Inbound layers li
 | `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `vless` | Protocol: VLESS-style header with UUID authentication (TCP). | Same. |
+| `pad` | Size equalization + peer authentication by key (`key` + `stages`). | Same, with the same `key`. |
+
+Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes framing and the key check to DPI — visible handshake bytes before TLS.
 
 The `http2` layer, or any multiplexing transport, takes a socket and exposes a virtual stream. The protocol therefore does not care what is underneath it: raw TCP, TLS, or HTTP/2. It simply reads from and writes to a stream.
 
@@ -199,7 +202,7 @@ Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection d
 ## Status
 
 Working:
-- `tcp`, `unix`, `tls`, `http2`, and `http-proxy` layers, plus the `jitter` and `fragment` shaping wrappers;
+- `tcp`, `unix`, `tls`, `http2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
 - Building client and server layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).
 
@@ -238,15 +241,3 @@ down = [
 ]
 ```
 
-8. `pad`: size equalization + peer authentication as an ordinary
-   `Stream → Stream` layer above TLS, below the protocol:
-
-```toml
-[[outbound.layers]]
-type = "pad"
-key = "<32 bytes hex>"
-stages = [
-  { bytes = 2000, size = "1200-1400" },
-  { size = "1400" },
-]
-```

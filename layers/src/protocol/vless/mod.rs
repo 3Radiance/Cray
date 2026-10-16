@@ -8,8 +8,6 @@ use cray_core::{
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::kit::Protocol;
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VlessCfg {
@@ -81,7 +79,7 @@ impl Layer for Vless {
     }
 }
 
-impl Protocol for Vless {
+impl Vless {
     async fn client<'a, C, W>(
         &self,
         mut plain: C,

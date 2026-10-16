@@ -11,16 +11,26 @@ where
     T::from_str(&s).map_err(serde::de::Error::custom)
 }
 
+pub(crate) fn deserialize_opt_from_str<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    opt.map(|s| T::from_str(&s).map_err(serde::de::Error::custom))
+        .transpose()
+}
+
+pub mod crypto;
 mod fingerprint;
 mod profiles;
+mod protocol;
 mod proxy;
 mod tcp;
 mod transport;
 mod unix;
 mod wrappers;
-// mod pad;
-mod kit;
-mod protocol;
 
 pub fn register(r: &mut Registry) {
     r.add("tcp", tcp::build);
@@ -31,5 +41,10 @@ pub fn register(r: &mut Registry) {
     r.add("tls", transport::tls::build);
     r.add("http2", transport::http2::build);
     r.add("vless", protocol::vless::build);
-    // r.add("pad", pad::build);
+    r.add("pad", wrappers::pad::build);
+    // r.add("xhttp-h2", transport::xhttp_h2::build);
+    // r.add("xhttp", transport::xhttp::build);
+    // r.add("byedpi", wrappers::byedpi::build);
+    // r.add("direct", protocol::direct::build);
+    // r.add("split", wrappers::split::build);
 }
