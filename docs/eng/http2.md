@@ -5,7 +5,7 @@ priorities and header order) is fully configurable through an HTTP/2 profile fil
 that the `http2` layer points to with `config`. The client-side `http2` layer shapes everything the
 network can see: the connection preface, the SETTINGS frame, stream
 priorities, pseudo-header order and header order
-(`src/fingerprint/http2/`).
+(`layers/src/fingerprint/http2/`).
 
 Unlike a forwarding proxy, Cray **originates** the HTTP/2 request itself.
 There are no incoming browser headers to pass through: the request is built

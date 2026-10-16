@@ -24,12 +24,12 @@ There are still relatively few built-in layers, but every new protocol or transp
 
 ## How It Works
 
-The configuration is a TOML file. First, specify the role, `client` or `server`, so the proxy can distinguish their functions and method calls. Then define two layer chains:
+The configuration is a TOML file with two layer chains:
 
 - **`inbound.layers`**: how to accept a connection;
 - **`outbound.layers`**: how to connect onward.
 
-The role changes the meaning of the layers: on the client, inbound is the browser-facing entry point, while outbound is the tunnel to the server; on the server, inbound accepts the tunnel, while outbound connects to the internet.
+There is no `client`/`server` flag: behavior follows position. Inbound layers listen and accept, outbound layers dial. A terminal (protocol) layer at the end of outbound means this side initiates (client); at the end of inbound, it means this side accepts (server).
 
 **Chain rules:**
 - The first layer is the connection source (`tcp` or `unix`);
@@ -42,7 +42,7 @@ The role changes the meaning of the layers: on the client, inbound is the browse
 |---|---|---|
 | `tcp` | Inbound: listens on `addr`. Outbound: connects to `addr`. | Inbound: listens on `addr`. Outbound: without `addr`, connects directly to the destination (like “freedom/direct”). |
 | `unix` | Inbound: listens on `addr`. Outbound: connects to `addr`. | Inbound: listens on `addr`. Outbound: connects to `addr`. |
-| `http_connect` | Accepts HTTP CONNECT from the browser and extracts the destination address. | Not used. |
+| `http-proxy` | Accepts HTTP CONNECT from the browser and extracts the destination address. | Proxy chaining: sends CONNECT to a fixed `addr` through the previous stream. |
 | `tls` | Client handshake: `sni` and a configurable fingerprint. | Acceptor: performs a handshake using your certificates. |
 | `http2` | Opens a POST/PUT request and exposes a **virtual stream**. | HTTP/2 server: accepts streams and passes each onward as a separate stream. |
 | `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
@@ -54,15 +54,13 @@ The `http2` layer, or any multiplexing transport, takes a socket and exposes a v
 ### Example: Client
 
 ```toml
-role = "client"
-
 # 1. Inbound: listen on a local port and parse HTTP CONNECT
 [[inbound.layers]]
 type = "tcp"
 addr = "127.0.0.1:10810"
 
 [[inbound.layers]]
-type = "http_connect"
+type = "http-proxy"
 
 # 2. Outbound: tunnel to the server
 [[outbound.layers]]
@@ -89,15 +87,13 @@ uuid = "11111111-1111-4111-8111-111111111111"   # placeholder, generate your own
 
 What happens:
 
-1. `tcp` in inbound listens on the specified address (every inbound layer does this, regardless of role).
-2. `http_connect` extracts the destination address from the request and passes it to the protocol so it can label packets. This completes the inbound chain. Instead of HTTP CONNECT, you could write your own entry layer, such as SOCKS5; its only job would be to extract the destination address.
+1. `tcp` in inbound listens on the specified address (every inbound source does this).
+2. `http-proxy` extracts the destination address from the request and passes it to the protocol so it can label packets. This completes the inbound chain. Instead of HTTP CONNECT, you could write your own entry layer, such as SOCKS5; its only job would be to extract the destination address.
 3. In outbound, `tcp` creates a socket and connects it to the server, `tls` encrypts it, `http2` wraps it in a virtual stream, and the protocol operates on that stream.
 
 ### Example: Server
 
 ```toml
-role = "server"
-
 [[inbound.layers]]
 type = "tcp"
 addr = "127.0.0.1:10811"
@@ -106,7 +102,7 @@ addr = "127.0.0.1:10811"
 type = "tls"
 cert = "/path/to/fullchain.pem"
 key = "/path/to/privkey.pem"
-tls_path = "./tls.toml"      # on the server only alpn is read from it
+alpn = ["h2"]
 
 [[inbound.layers]]
 type = "http2"
@@ -158,7 +154,7 @@ Fingerprints live in separate profile files that the layers point to: `tls_path`
 
 For a detailed description of all fields, see [docs/eng/tls.md](docs/eng/tls.md) and [docs/eng/http2.md](docs/eng/http2.md).
 
-On the server, HTTP/2 requires `alpn = ["h2"]` in the profile that the `tls` layer points to with `tls_path`.
+On the server, the `tls` layer takes `alpn` directly; `tls_path` is ignored inbound (a warning is logged).
 
 ---
 
@@ -166,13 +162,9 @@ On the server, HTTP/2 requires `alpn = ["h2"]` in the profile that the `tls` lay
 
 | Module | Purpose |
 |---|---|
-| `inbound/` | Inbound layers: `tcp`, `unix`, `http_connect`, as well as custom ones (e.g. SOCKS5). |
-| `transport/` | Transport layers: `tls`, `http2`, and the shaping wrappers `jitter` and `fragment`. |
-| `protocol/` | Protocol: the final layer in the chain. |
-| `outbound/` | Outbound: a direct connection or a chain of layers. |
-| `auth/` | Basic cryptography and authentication methods (under development). |
-| `config/` | Configuration loading and validation. |
-| `fingerprint/` | TLS/HTTP2 builders. |
+| `core/` | The engine: layer contract (`Layer`), `Registry`, chain building and validation, the `drive` runner. Knows no layer names. |
+| `layers/` | All layers, grouped by kind: `transport/` (`tls`, `http2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrapers/` (`jitter`, `fragment`), plus `tcp`, `unix`, `fingerprint/` builders and `profiles/` loading. A new layer is one file plus one `register` line. |
+| `cray/` | The binary: parses args, registers layers, builds the engine, runs. |
 
 ---
 
@@ -189,25 +181,25 @@ cd conf          # profile paths such as ./tls.toml are relative to the working 
 
 The example configs and profiles live in [`conf/`](conf/).
 
-Generate your own UUID with `cargo run --bin gen_uuid` and put it into the `uuid` field of the `vless` layer on both sides. The UUIDs in the examples are placeholders, do not use them.
+Generate your own UUID with `cargo run -p cray --bin gen_uuid` and put it into the `uuid` field of the `vless` layer on both sides. The UUIDs in the examples are placeholders, do not use them.
 
 ### Logging
 
-The default level is `debug`. Set `RUST_LOG` to change it, globally or per tag:
+The default level is `info`. Set `RUST_LOG` to change it, globally or per tag:
 
 ```bash
 RUST_LOG=info ./cray --config server.toml
-RUST_LOG=info,H2=debug,FRAG=trace ./cray --config client.toml
+RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 ```
 
-Tags: `CFG`, `INB`, `LISTEN`, `CHAIN`, `TLS`, `H2`, `TCP`, `TSF`, `CERT`, `JITTER`, `FRAG`. Per-connection details are logged at `debug` and `trace`, so `info` stays quiet.
+Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection details are logged at `debug` and `trace`, so `info` stays quiet.
 
 ---
 
 ## Status
 
 Working:
-- `tcp`, `unix`, `tls`, `http2`, and `http_connect` layers, plus the `jitter` and `fragment` shaping wrappers;
+- `tcp`, `unix`, `tls`, `http2`, and `http-proxy` layers, plus the `jitter` and `fragment` shaping wrappers;
 - Building client and server layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).
 
@@ -220,3 +212,41 @@ Working:
 4. A declarative protocol description language (DSL) for people who do not want to write Rust code. Rust authors retain full flexibility; the DSL is limited to a closed set of verifiers.
 5. Custom transports and protocols as extensions, HTTP/1.1 and WebSocket support, and UDP.
 6. Connection multiplexing (last priority).
+7. `xhttp`: split uplink/downlink over two legs with independent stacks.
+   Each leg (`up`/`down`) is a full sub-chain with its own transports and
+   shaping, so the two directions can look different on the wire:
+
+```toml
+[[outbound.layers]]
+type = "xhttp-h2"
+host = "idk.com"
+path = "/tun"
+method = "POST"
+config = "conf/http2.toml"
+# Each leg is a full sub-chain: any layers are allowed inside except extra
+# transports (h2/ws — tcp/tls don't count) and protocols. Shaping (jitter,
+# fragment, pad), alternative encryption instead of/alongside tls, even
+# routing legs through different proxies via http-proxy:
+up = [
+  { type = "tcp", addr = "up.example.com:443" },
+  { type = "http-proxy", addr = "xhttp.server.com:443" },
+  { type = "tls", sni = "xhttp.server.com", tls_path = "./tls.toml" },
+]
+down = [
+  { type = "tcp", addr = "down.example.com:443" },
+  { type = "tls", sni = "down.example.com", tls_path = "./tls.toml" },
+]
+```
+
+8. `pad`: size equalization + peer authentication as an ordinary
+   `Stream → Stream` layer above TLS, below the protocol:
+
+```toml
+[[outbound.layers]]
+type = "pad"
+key = "<32 bytes hex>"
+stages = [
+  { bytes = 2000, size = "1200-1400" },
+  { size = "1400" },
+]
+```
