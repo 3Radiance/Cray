@@ -151,10 +151,21 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for JitterStream<S> {
             if !self.armed {
                 let d = self.current_delay();
                 if d.is_zero() {
-                    log_tag!(trace, "JITTER", "zero delay for stage index {}, skipping sleep", self.idx);
+                    log_tag!(
+                        trace,
+                        "JITTER",
+                        "zero delay for stage index {}, skipping sleep",
+                        self.idx
+                    );
                     self.slept = true;
                 } else {
-                    log_tag!(trace, "JITTER", "Delay for stage index {}, sleeping for {:?}", self.idx, d);
+                    log_tag!(
+                        trace,
+                        "JITTER",
+                        "Delay for stage index {}, sleeping for {:?}",
+                        self.idx,
+                        d
+                    );
                     self.sleep.as_mut().reset(Instant::now() + d);
                     self.armed = true;
                 }

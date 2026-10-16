@@ -1,5 +1,5 @@
-use anyhow::{Result, bail};
 use crate::deserialize_from_str;
+use anyhow::{Result, bail};
 use cray_core::log_tag;
 use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Input, Layer, Output, Ports};
 use serde::Deserialize;
@@ -173,7 +173,15 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for FragmentStream<S> {
             }
             .min(current_buf.len());
 
-            log_tag!(trace, "FRAG", "stage: {}, written: {}, buf_len: {}, take: {}", self.idx, self.written, current_buf.len(), take);
+            log_tag!(
+                trace,
+                "FRAG",
+                "stage: {}, written: {}, buf_len: {}, take: {}",
+                self.idx,
+                self.written,
+                current_buf.len(),
+                take
+            );
 
             match Pin::new(&mut self.inner).poll_write(cx, &current_buf[..take]) {
                 Poll::Ready(Ok(n)) => {

@@ -1,6 +1,3 @@
-//! Все слои. Зависит от cray-core, ядро про этот крейт ничего не знает.
-//! Новый слой = новый файл + одна строка в `register`.
-
 use cray_core::Registry;
 use serde::Deserialize;
 
@@ -14,23 +11,25 @@ where
     T::from_str(&s).map_err(serde::de::Error::custom)
 }
 
-mod http_connect;
+mod fingerprint;
+mod profiles;
+mod proxy;
 mod tcp;
+mod transport;
 mod unix;
-// mod tls;
-// mod http2;
-mod fragment;
-mod jitter;
+mod wrappers;
 // mod pad;
 mod kit;
-mod vless;
+mod protocol;
 
 pub fn register(r: &mut Registry) {
     r.add("tcp", tcp::build);
     r.add("unix", unix::build);
-    r.add("fragment", fragment::build);
-    r.add("jitter", jitter::build);
-    r.add("http_connect", http_connect::build);
-    r.add("vless", vless::build);
+    r.add("fragment", wrappers::fragment::build);
+    r.add("jitter", wrappers::jitter::build);
+    r.add("http-proxy", proxy::http::build);
+    r.add("tls", transport::tls::build);
+    r.add("http2", transport::http2::build);
+    r.add("vless", protocol::vless::build);
     // r.add("pad", pad::build);
 }
