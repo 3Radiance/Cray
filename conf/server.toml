@@ -8,7 +8,7 @@ addr = "127.0.0.1:10811"
 type = "tls"
 cert = "/path/to/fullchain.pem"
 key = "/path/to/privkey.pem"
-tls_path = "./tls.toml" # Used only for ALPN negotiation
+alpn = ["h2"]
 
 [[inbound.layers]]
 type = "http2"

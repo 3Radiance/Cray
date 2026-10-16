@@ -5,7 +5,7 @@ type = "tcp"
 addr = "127.0.0.1:10810"
 
 [[inbound.layers]]
-type = "http_connect"
+type = "http-proxy"
 
 [[outbound.layers]]
 type = "tcp"

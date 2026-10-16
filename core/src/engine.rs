@@ -1,5 +1,4 @@
-
-use crate::api::{BoxFuture, BuildCx, Input, Output, Port, Side};
+use crate::api::{BoxFuture, BuildCx, ConnectRequest, Input, Output, Port, Side};
 use crate::chain::{Chain, Entry, build_entries, check_links, check_requires, feeds_stream};
 use crate::config::AppConfig;
 use crate::cx::{Cx, Key, key};
@@ -29,7 +28,9 @@ pub(crate) async fn with_timeout<T>(
 }
 
 fn take_terminal(entries: &mut Vec<Entry>) -> Option<Entry> {
-    let is_terminal = entries.last().is_some_and(|e| e.layer.ports().gives == Port::Done);
+    let is_terminal = entries
+        .last()
+        .is_some_and(|e| e.layer.ports().gives == Port::Done);
     if is_terminal { entries.pop() } else { None }
 }
 
@@ -41,8 +42,12 @@ impl Engine {
 
         let terminal = match (take_terminal(&mut head), take_terminal(&mut dial)) {
             (Some(t), None) | (None, Some(t)) => t,
-            (None, None) => bail!("no terminal (protocol) layer: expected it as the last layer of inbound or outbound"),
-            (Some(_), Some(_)) => bail!("terminal (protocol) layer found in both inbound and outbound"),
+            (None, None) => bail!(
+                "no terminal (protocol) layer: expected it as the last layer of inbound or outbound"
+            ),
+            (Some(_), Some(_)) => {
+                bail!("terminal (protocol) layer found in both inbound and outbound")
+            }
         };
         ensure!(
             terminal.layer.ports().takes == Port::Stream,
@@ -68,16 +73,23 @@ impl Engine {
         let mut provided: HashSet<Key> = HashSet::new();
         check_requires(&head, &mut provided, "inbound")?;
         provided.extend(terminal.layer.provides());
-        provided.insert(key::<crate::api::ConnectRequest>());
         let mut with_dialer = provided.clone();
         with_dialer.insert(key::<Dialer>());
-        check_requires(std::slice::from_ref(&terminal), &mut with_dialer, "terminal")?;
-        check_requires(&dial, &mut provided, "outbound")?;
+        check_requires(
+            std::slice::from_ref(&terminal),
+            &mut with_dialer,
+            "terminal",
+        )?;
+        let mut dial_provided = provided.clone();
+        dial_provided.insert(key::<ConnectRequest>());
+        check_requires(&dial, &mut dial_provided, "outbound")?;
 
         Ok(Engine {
             head: Arc::new(Chain { entries: head }),
             terminal,
-            dialer: Dialer { chain: Arc::new(Chain { entries: dial }) },
+            dialer: Dialer {
+                chain: Arc::new(Chain { entries: dial }),
+            },
         })
     }
 
@@ -112,7 +124,10 @@ fn drive(eng: Arc<Engine>, i: usize, input: Input, mut cx: Cx) -> BoxFuture<'sta
                 }
                 Ok(())
             }
-            Output::Done => bail!("layer '{}' gave Done in the middle of the chain", eng.head.entries[i].name),
+            Output::Done => bail!(
+                "layer '{}' gave Done in the middle of the chain",
+                eng.head.entries[i].name
+            ),
         }
     })
 }
