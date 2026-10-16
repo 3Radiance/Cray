@@ -1,4 +1,4 @@
-# Traffic Shaping Layers: `jitter` and `fragment`
+# Traffic Shaping Layers: `jitter` and `fragment` and `pad`
 
 Both layers are plain wrappers. They take any stream and return a stream: no
 sockets, no profile files, and no knowledge of the transport or the protocol
@@ -174,12 +174,43 @@ stages = [
 Here the first 2000 bytes (the ClientHello) are cut 1 byte at a time with no
 delays, and the rest goes in 600–1000 byte chunks with 1–10 ms of jitter.
 
+## `pad`: size equalization + authentication
+
+`pad` is a `Stream → Stream` layer, placed above TLS and below the protocol.
+Every frame on the wire is
+`[tag:32 | payload_len:2 | pad_len:2 | payload | pad]`,
+`tag = HMAC-SHA256(key, seq || lens || payload)`. Both sides share `key`
+(32 bytes hex, generate one with `cargo run -p cray --bin gen_key`); a bad tag
+closes the connection silently. Sequence numbers rule out replay and reorder
+inside the connection.
+
+```toml
+[[outbound.layers]]
+type = "pad"
+key = "<32 bytes hex>"
+stages = [
+  { bytes = 2000, size = "1200-1400" },
+  { size = "1400" },
+]
+```
+
+Each stage is in exactly one mode: `size` always inflates to S (fixed, range,
+or percent overhead on top of arrival), `upto` only pads up to the cap (`"0"`
+disables padding and keeps authentication only). `stages` count wire bytes —
+the same coordinate system as `jitter` and `fragment`. One side may pad while
+the other sends bare: put `upto = "0"` on the quiet direction.
+
+Placement matters: `tcp → tls → pad` hides padding inside the encryption
+(recommended). `tcp → pad → tls` also works, but exposes framing and the key
+check to DPI — visible handshake bytes before TLS.
+
 ## Logging
 
-Both layers log every write at `trace` level under the tags `JITTER` and `FRAG`:
+The layers log every write at `trace` level under the tags `JITTER`, `FRAG`
+and `PAD`:
 
 ```bash
-RUST_LOG=info,JITTER=trace,FRAG=trace ./cray --config client.toml
+RUST_LOG=info,JITTER=trace,FRAG=trace,PAD=trace ./cray --config client.toml
 ```
 
 ## Gotchas
@@ -192,7 +223,12 @@ RUST_LOG=info,JITTER=trace,FRAG=trace ./cray --config client.toml
 - The upper bound of a range is exclusive in `fragment` (`"1000-1400"` never
   produces exactly 1400) but inclusive in `jitter` (`"10-20"` can produce 20).
   `"10-10"` always gives 10 in both.
-- `stages` must hold at least one stage: an empty list panics the connection on
-  the first write.
+- `stages` must hold at least one stage: an empty list is rejected at startup.
+- A `pad` stage must set either `size` or `upto`, not both and not none —
+  also a startup error. Frame sizes at or below the 36-byte header are
+  rejected as well.
+- `pad` on one side only gives garbage at the first header: the tag never
+  matches and the connection is closed. If both sides log `bad tag`, check
+  that the `key` is identical and `pad` is present on both ends.
 - Using both layers on every connection costs throughput and adds latency.
   Measure before you enable them for bulk traffic.
