@@ -4,7 +4,7 @@ The client-side `tls` layer builds its ClientHello entirely from a TLS profile
 file that the layer points to: cipher order, extensions and their order, curves,
 signature algorithms, ALPN, GREASE, certificate compression. Every byte of the
 ClientHello that fingerprinting sees is under your control. The stack is
-BoringSSL via `btls` / `tokio-btls` (`src/fingerprint/tls/`).
+BoringSSL via `btls` / `tokio-btls` (`layers/src/fingerprint/tls/`).
 
 The server-side `tls` layer is a plain acceptor. It is **not** fingerprint-shaped:
 it only needs a certificate, a key and an ALPN list.
@@ -36,7 +36,7 @@ cipher_suites = [ ... ]
 type = "tls"
 cert = "/path/to/fullchain.pem"
 key = "/path/to/privkey.pem"
-tls_path = "./tls.toml"        # on the server only `alpn` is read from it
+alpn = ["h2"]                  # on the server ALPN comes from the layer, tls_path is ignored
 ```
 
 Layer fields:
@@ -44,7 +44,8 @@ Layer fields:
 | Field | Client | Server |
 |---|---|---|
 | `sni` | required: the name sent in the ClientHello and checked against the certificate | not used |
-| `tls_path` | required: the fingerprint profile | required: only `alpn` is read |
+| `tls_path` | required: the fingerprint profile | ignored (a warning is logged) |
+| `alpn` | not used | ALPN protocols to accept, e.g. `["h2"]` |
 | `http2_path` | required, but the file is read only when `alps = true`; otherwise any placeholder string works | not used |
 | `cert`, `key` | not used | required: PEM certificate chain and private key |
 | `timeout` | seconds (`timeout = 6`) or preset name (`timeout = "tls"`); default 6 | same; default 6 |
@@ -53,12 +54,12 @@ How the files are handled:
 
 - Relative paths are resolved against the process working directory, not
   against the config file.
-- A profile is loaded the first time a connection needs it and is cached by
-  path. Errors in a profile show up on the first connection, not at startup,
-  and edits need a restart.
+- Profiles are loaded and validated at startup (the `tls` layer reads its
+  `tls_path`, and `http2_path` when the profile enables `alps`), and cached
+  by path. Edits need a restart.
 - Keys that are not part of the profile are ignored silently, so a misspelled
   key simply has no effect.
-- A missing required layer field is reported when a connection arrives.
+- A missing required layer field is reported at startup, before listening.
 
 TOML has no `null`. To leave an optional field unset, **omit the key**.
 
@@ -114,7 +115,7 @@ that also appears in the server's `alpn`. If nothing matches, no ALPN is
 negotiated.
 
 The client connector is assembled in `tls_builder`
-(`src/fingerprint/tls/builder.rs`) in this order: Chromium root store → cipher
+(`layers/src/fingerprint/tls/builder.rs`) in this order: Chromium root store → cipher
 suites → ALPN → curves → signature algorithms → record size limit →
 certificate compression → GREASE → extension permutation → OCSP → SCT →
 session ticket → delegated credentials → extension order. ALPS is attached per
@@ -216,7 +217,7 @@ Encoded into the length-prefixed wire format and offered to the server on the
 client, or used as the accepted list on the server. Entries that are empty or
 longer than 255 bytes are skipped silently. If `alpn` is omitted, no ALPN is
 sent or accepted, and the `http2` layer cannot be used over this TLS
-connection. **On the server, set `alpn = ["h2"]` in the profile that `tls_path` points to
+connection. **On the server, set `alpn = ["h2"]` on the `tls` layer itself
 when the chain contains an `http2` layer.**
 
 ### `curves`: supported groups, in order
@@ -385,10 +386,9 @@ itself is not produced yet. ECH lookup over DoH is planned.
   `tls.peet.ws` or Wireshark) and mirror it.
 - `permute_extensions = true` together with `extensions_order` is a
   contradictory config. Pick one.
-- A server using an `http2` layer needs `alpn = ["h2"]` in the profile its `tls`
-  layer points to; otherwise the HTTP/2 handshake fails.
-- The server's acceptor is cached by `cert` and `key` only. If two `tls` layers
-  share the same pair but use different `tls_path` files, the first profile wins.
+- A server using an `http2` layer needs `alpn = ["h2"]` on its `tls`
+  layer; otherwise the HTTP/2 handshake fails.
+- The server's acceptor is cached by `cert`, `key` and the `alpn` list.
 - Unknown keys in a profile are ignored without any warning. If a setting seems
   to have no effect, check the spelling of the key first.
 - The server certificate must be trusted by the Chromium root store and match
