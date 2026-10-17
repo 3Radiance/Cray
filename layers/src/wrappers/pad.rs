@@ -1,7 +1,4 @@
-use crate::{
-    crypto::{parse_key, tag as hmac_tag, verify as hmac_verify},
-    deserialize_opt_from_str,
-};
+use crate::deserialize_opt_from_str;
 use anyhow::Result;
 use cray_core::log_tag;
 use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Input, Layer, Output, Ports};
@@ -10,33 +7,32 @@ use serde::Deserialize;
 use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+const HDR: usize = 2 + 2;
+const MAX_FRAME_BODY: usize = 16 * 1024;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadCfg {
-    key: Option<String>,
     stages: Option<Vec<PadStage>>,
 }
 
 pub fn build(params: &toml::Table, _bcx: &BuildCx) -> Result<Box<dyn Layer>> {
     let cfg: PadCfg = params.clone().try_into()?;
-    let key = cfg.key.ok_or_else(|| anyhow::anyhow!("key is required"))?;
-    let key = parse_key(&key)?;
     let stages = cfg
         .stages
         .ok_or_else(|| anyhow::anyhow!("stages is required"))?;
-    anyhow::ensure!(stages.len() > 0, "stages must not be empty");
-    for stage in &stages {
-        stage.validate()?;
-    }
-    Ok(Box::new(Pad { key, stages }))
+    validate_stages(&stages)?;
+    Ok(Box::new(Pad {
+        stages: stages.into(),
+    }))
 }
 
 pub struct Pad {
-    key: [u8; 32],
-    stages: Vec<PadStage>,
+    stages: Arc<[PadStage]>,
 }
 
 impl Layer for Pad {
@@ -51,7 +47,6 @@ impl Layer for Pad {
             Ok(Output::Stream(Box::pin(PadStream::new(
                 stream,
                 self.stages.clone(),
-                self.key,
             ))))
         })
     }
@@ -65,18 +60,18 @@ pub enum PadSize {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub enum PadUpTo {
+    Fixed(usize),
+    Range(usize, usize),
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct PadStage {
     pub bytes: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_opt_from_str")]
     pub size: Option<PadSize>,
     #[serde(default, deserialize_with = "deserialize_opt_from_str")]
     pub upto: Option<PadUpTo>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub enum PadUpTo {
-    Fixed(usize),
-    Range(usize, usize),
 }
 
 impl FromStr for PadUpTo {
@@ -151,54 +146,111 @@ impl FromStr for PadSize {
     }
 }
 
+fn check_frame_size(n: usize) -> Result<()> {
+    anyhow::ensure!(
+        n > HDR,
+        "pad: frame size {n} must be > {HDR} (the header), or 0 for no padding"
+    );
+    anyhow::ensure!(
+        n <= HDR + MAX_FRAME_BODY,
+        "pad: frame size {n} must be <= {}",
+        HDR + MAX_FRAME_BODY
+    );
+    Ok(())
+}
+
+impl PadSize {
+    fn check(&self) -> Result<()> {
+        match *self {
+            PadSize::Fixed(0) | PadSize::Percent(_) => Ok(()),
+            PadSize::Fixed(n) => check_frame_size(n),
+            PadSize::Range(min, max) => {
+                check_frame_size(min)?;
+                check_frame_size(max)
+            }
+        }
+    }
+}
+
+impl PadUpTo {
+    fn check(&self) -> Result<()> {
+        match *self {
+            PadUpTo::Fixed(0) => Ok(()),
+            PadUpTo::Fixed(n) => check_frame_size(n),
+            PadUpTo::Range(min, max) => {
+                check_frame_size(min)?;
+                check_frame_size(max)
+            }
+        }
+    }
+}
+
 impl PadStage {
     pub fn validate(&self) -> Result<()> {
         anyhow::ensure!(
             self.size.is_some() ^ self.upto.is_some(),
             "pad stage: set either 'size' or 'upto', not both and not none"
         );
+        if let Some(s) = &self.size {
+            s.check()?;
+        }
+        if let Some(u) = &self.upto {
+            u.check()?;
+        }
         Ok(())
     }
 }
 
-pub struct PadStream<S> {
-    inner: S,
-    key: [u8; 32],
-    stages: Vec<PadStage>,
-    idx: usize,
-    written: u64,
-    wseq: u64,
-    rseq: u64,
-    wbuf: Vec<u8>,
-    rstate: ReadState,
-    rbuf: Vec<u8>,
-    pending: Vec<u8>,
-    poff: usize,
+fn validate_stages(stages: &[PadStage]) -> Result<()> {
+    anyhow::ensure!(!stages.is_empty(), "stages must not be empty");
+    for st in stages {
+        st.validate()?;
+    }
+    let mut prev = 0u64;
+    for (i, st) in stages.iter().enumerate() {
+        match st.bytes {
+            None => anyhow::ensure!(
+                i + 1 == stages.len(),
+                "pad stage {i}: only the last stage may omit 'bytes'"
+            ),
+            Some(b) => {
+                anyhow::ensure!(b > prev, "pad stage {i}: 'bytes' must be increasing");
+                prev = b;
+            }
+        }
+    }
+    Ok(())
 }
 
-const HDR: usize = 32 + 2 + 2;
-const MAX_FRAME_BODY: usize = 16 * 1024;
-
+#[derive(Clone, Copy)]
 enum ReadState {
-    Hdr,
-    Body { payload: usize, pad: usize },
+    Hdr { got: usize },
+    Payload { left: usize, pad: usize },
+    Pad { left: usize },
+}
+
+pub struct PadStream<S> {
+    inner: S,
+    stages: Arc<[PadStage]>,
+    idx: usize,
+    written: u64,
+    wbuf: Vec<u8>,
+    woff: usize,
+    hdr: [u8; HDR],
+    rstate: ReadState,
 }
 
 impl<S> PadStream<S> {
-    pub fn new(inner: S, stages: Vec<PadStage>, key: [u8; 32]) -> Self {
+    pub fn new(inner: S, stages: Arc<[PadStage]>) -> Self {
         Self {
             inner,
-            key,
             stages,
             idx: 0,
             written: 0,
-            wseq: 0,
-            rseq: 0,
             wbuf: Vec::new(),
-            rstate: ReadState::Hdr,
-            rbuf: Vec::with_capacity(HDR),
-            pending: Vec::new(),
-            poff: 0,
+            woff: 0,
+            hdr: [0; HDR],
+            rstate: ReadState::Hdr { got: 0 },
         }
     }
 
@@ -212,82 +264,47 @@ impl<S> PadStream<S> {
         }
     }
 
-    fn frame_size(&mut self, arrival: usize) -> Option<usize> {
+    fn frame_size(&mut self, arrival: usize) -> usize {
         self.advance_stage();
         let st = &self.stages[self.idx];
         let mut rng = rand::rng();
         if let Some(size) = &st.size {
-            let s = match size {
-                PadSize::Fixed(0) => return Some(0),
+            match size {
                 PadSize::Fixed(n) => *n,
                 PadSize::Range(min, max) => rng.random_range(*min..=*max),
-
-                PadSize::Percent(p) => arrival + arrival * (*p as usize) / 100,
-            };
-            Some(s.max(1))
+                // pad_len = p% of what arrived
+                PadSize::Percent(p) => HDR + arrival + arrival.saturating_mul(*p as usize) / 100,
+            }
         } else if let Some(upto) = &st.upto {
-            let cap = match upto {
-                PadUpTo::Fixed(0) => return Some(0),
+            match upto {
                 PadUpTo::Fixed(n) => *n,
                 PadUpTo::Range(min, max) => rng.random_range(*min..=*max),
-            };
-            Some(cap.max(1))
+            }
         } else {
-            None
+            0
         }
     }
-}
 
-impl<S: AsyncWrite + Unpin> PadStream<S> {
-    fn poll_drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        while !self.wbuf.is_empty() {
-            let wire_len = self.wbuf.len();
-            match Pin::new(&mut self.inner).poll_write(cx, &self.wbuf) {
-                Poll::Ready(Ok(n)) => {
-                    self.wbuf.drain(..n);
-                    if !self.wbuf.is_empty() {
-                        return Poll::Pending;
-                    }
-                    self.written += wire_len as u64;
-                }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-        Poll::Ready(Ok(()))
-    }
-
-    fn make_frame(&mut self, buf: &[u8]) -> Result<(Vec<u8>, usize)> {
-        let s = self
-            .frame_size(buf.len())
-            .ok_or_else(|| anyhow::anyhow!("pad: stage has neither size nor upto"))?;
-        let cap = if s == 0 {
-            MAX_FRAME_BODY
+    fn make_frame(&mut self, buf: &[u8]) -> usize {
+        let s = self.frame_size(buf.len());
+        let (n, pad_len) = if s == 0 {
+            (buf.len().min(MAX_FRAME_BODY), 0)
         } else {
-            if s <= HDR {
-                anyhow::bail!("pad: frame size must be > {HDR} (check stage size/upto)");
-            }
-            (s - HDR).min(MAX_FRAME_BODY)
+            let cap = s.saturating_sub(HDR).clamp(1, MAX_FRAME_BODY);
+            let n = buf.len().min(cap);
+            (n, cap - n)
         };
-        let n = buf.len().min(cap);
-        let pad_len = cap - n;
+        self.written += n as u64;
 
-        let mut hdr = [0u8; 4];
-        hdr[0..2].copy_from_slice(&(n as u16).to_be_bytes());
-        hdr[2..4].copy_from_slice(&(pad_len as u16).to_be_bytes());
-        let mut mac_msg = Vec::with_capacity(8 + 4 + n);
-        mac_msg.extend_from_slice(&self.wseq.to_be_bytes());
-        mac_msg.extend_from_slice(&hdr);
-        mac_msg.extend_from_slice(&buf[..n]);
-        let tag = hmac_tag(&self.key, &mac_msg);
-        self.wseq += 1;
-
-        let mut frame = Vec::with_capacity(HDR + n + pad_len);
-        frame.extend_from_slice(&tag);
-        frame.extend_from_slice(&hdr);
-        frame.extend_from_slice(&buf[..n]);
-        frame.resize(HDR + n + pad_len, 0);
-        rand::rng().fill(&mut frame[HDR + n..]);
+        self.wbuf.clear();
+        self.woff = 0;
+        self.wbuf.reserve(HDR + n + pad_len);
+        self.wbuf.extend_from_slice(&(n as u16).to_be_bytes());
+        self.wbuf.extend_from_slice(&(pad_len as u16).to_be_bytes());
+        self.wbuf.extend_from_slice(&buf[..n]);
+        let start = self.wbuf.len();
+        self.wbuf.resize(start + pad_len, 0);
+        rand::rng().fill(&mut self.wbuf[start..]);
         log_tag!(
             trace,
             "PAD",
@@ -297,8 +314,30 @@ impl<S: AsyncWrite + Unpin> PadStream<S> {
             n,
             pad_len
         );
-        Ok((frame, n))
+        n
     }
+}
+
+impl<S: AsyncWrite + Unpin> PadStream<S> {
+    fn poll_drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        while self.woff < self.wbuf.len() {
+            let n = ready!(Pin::new(&mut self.inner).poll_write(cx, &self.wbuf[self.woff..]))?;
+            if n == 0 {
+                return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
+            }
+            self.woff += n;
+        }
+        self.wbuf.clear();
+        self.woff = 0;
+        Poll::Ready(Ok(()))
+    }
+}
+
+fn eof(what: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        format!("pad: eof inside {what}"),
+    )
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for PadStream<S> {
@@ -309,73 +348,75 @@ impl<S: AsyncRead + Unpin> AsyncRead for PadStream<S> {
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         loop {
-            if this.poff < this.pending.len() {
-                let n = (this.pending.len() - this.poff).min(buf.remaining());
-                buf.put_slice(&this.pending[this.poff..this.poff + n]);
-                this.poff += n;
-                if this.poff == this.pending.len() {
-                    this.pending.clear();
-                    this.poff = 0;
-                }
-                return Poll::Ready(Ok(()));
-            }
-
-            let want = match this.rstate {
-                ReadState::Hdr => HDR,
-                ReadState::Body { payload, pad } => HDR + payload + pad,
-            };
-            while this.rbuf.len() < want {
-                let mut tmp = [0u8; 8192];
-                let mut rb = ReadBuf::new(&mut tmp);
-                ready!(Pin::new(&mut this.inner).poll_read(cx, &mut rb))?;
-                let n = rb.filled().len();
-                if n == 0 {
-                    if this.rbuf.is_empty() && matches!(this.rstate, ReadState::Hdr) {
-                        return Poll::Ready(Ok(()));
-                    }
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "pad: eof inside frame",
-                    )));
-                }
-                this.rbuf.extend_from_slice(rb.filled());
-            }
-
             match this.rstate {
-                ReadState::Hdr => {
-                    let payload = u16::from_be_bytes([this.rbuf[32], this.rbuf[33]]) as usize;
-                    let pad = u16::from_be_bytes([this.rbuf[34], this.rbuf[35]]) as usize;
+                ReadState::Hdr { got } => {
+                    let m = {
+                        let mut rb = ReadBuf::new(&mut this.hdr[got..]);
+                        ready!(Pin::new(&mut this.inner).poll_read(cx, &mut rb))?;
+                        rb.filled().len()
+                    };
+                    if m == 0 {
+                        return if got == 0 {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Ready(Err(eof("header")))
+                        };
+                    }
+                    let got = got + m;
+                    if got < HDR {
+                        this.rstate = ReadState::Hdr { got };
+                        continue;
+                    }
+                    let payload = u16::from_be_bytes([this.hdr[0], this.hdr[1]]) as usize;
+                    let pad = u16::from_be_bytes([this.hdr[2], this.hdr[3]]) as usize;
                     if payload > MAX_FRAME_BODY || pad > MAX_FRAME_BODY {
                         return Poll::Ready(Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "pad: frame too large",
                         )));
                     }
-                    this.rstate = ReadState::Body { payload, pad };
+                    this.rstate = ReadState::Payload { left: payload, pad };
                 }
-                ReadState::Body { payload, pad } => {
-                    let frame_len = HDR + payload + pad;
-                    let body: Vec<u8> = this.rbuf[..frame_len].to_vec();
-                    this.rbuf.drain(..frame_len);
-                    let (tag, rest) = body.split_at(32);
-                    let (hdr, rest) = rest.split_at(4);
-                    let (payload_bytes, _) = rest.split_at(payload);
-
-                    let mut mac_msg = Vec::with_capacity(8 + 4 + payload);
-                    mac_msg.extend_from_slice(&this.rseq.to_be_bytes());
-                    mac_msg.extend_from_slice(hdr);
-                    mac_msg.extend_from_slice(payload_bytes);
-                    if hmac_verify(&this.key, &mac_msg, tag).is_err() {
-                        log_tag!(warn, "PAD", "bad tag, closing");
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "pad: bad tag",
-                        )));
+                ReadState::Payload { left, pad } => {
+                    if left == 0 {
+                        this.rstate = ReadState::Pad { left: pad };
+                        continue;
                     }
-                    this.rseq += 1;
-                    this.rstate = ReadState::Hdr;
-                    this.pending = payload_bytes.to_vec();
-                    this.poff = 0;
+                    if buf.remaining() == 0 {
+                        return Poll::Ready(Ok(()));
+                    }
+                    let take = left.min(buf.remaining());
+                    let m = {
+                        let mut rb = ReadBuf::new(buf.initialize_unfilled_to(take));
+                        ready!(Pin::new(&mut this.inner).poll_read(cx, &mut rb))?;
+                        rb.filled().len()
+                    };
+                    if m == 0 {
+                        return Poll::Ready(Err(eof("payload")));
+                    }
+                    buf.advance(m);
+                    this.rstate = ReadState::Payload {
+                        left: left - m,
+                        pad,
+                    };
+                    return Poll::Ready(Ok(()));
+                }
+                ReadState::Pad { left } => {
+                    if left == 0 {
+                        this.rstate = ReadState::Hdr { got: 0 };
+                        continue;
+                    }
+                    let mut tmp = [0u8; 2048];
+                    let take = left.min(tmp.len());
+                    let m = {
+                        let mut rb = ReadBuf::new(&mut tmp[..take]);
+                        ready!(Pin::new(&mut this.inner).poll_read(cx, &mut rb))?;
+                        rb.filled().len()
+                    };
+                    if m == 0 {
+                        return Poll::Ready(Err(eof("padding")));
+                    }
+                    this.rstate = ReadState::Pad { left: left - m };
                 }
             }
         }
@@ -389,67 +430,27 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PadStream<S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        let mut offset = 0;
-
-        while offset < buf.len() {
-            if this.wbuf.is_empty() {
-                let (frame, n) = this
-                    .make_frame(&buf[offset..])
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-                debug_assert!(n > 0);
-                offset += n;
-                this.wbuf = frame;
-            }
-            let wire_len = this.wbuf.len();
-
-            match Pin::new(&mut this.inner).poll_write(cx, &this.wbuf) {
-                Poll::Ready(Ok(n)) => {
-                    this.wbuf.drain(..n);
-                    if !this.wbuf.is_empty() {
-                        break;
-                    }
-                    this.written += wire_len as u64;
-                }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => break,
-            }
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
         }
+        ready!(this.poll_drain(cx))?;
+        let n = this.make_frame(buf);
 
-        if offset > 0 {
-            Poll::Ready(Ok(offset))
-        } else if this.wbuf.is_empty() {
-            Poll::Ready(Ok(0))
-        } else {
-            let wire_len = this.wbuf.len();
-            match Pin::new(&mut this.inner).poll_write(cx, &this.wbuf) {
-                Poll::Ready(Ok(n)) => {
-                    this.wbuf.drain(..n);
-                    if this.wbuf.is_empty() {
-                        this.written += wire_len as u64;
-                        Poll::Ready(Ok(0))
-                    } else {
-                        Poll::Pending
-                    }
-                }
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                Poll::Pending => Poll::Pending,
-            }
+        if let Poll::Ready(Err(e)) = this.poll_drain(cx) {
+            return Poll::Ready(Err(e));
         }
+        Poll::Ready(Ok(n))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        if this.poll_drain(cx).is_pending() {
-            return Poll::Pending;
-        }
+        ready!(this.poll_drain(cx))?;
         Pin::new(&mut this.inner).poll_flush(cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        if this.poll_drain(cx).is_pending() {
-            return Poll::Pending;
-        }
+        ready!(this.poll_drain(cx))?;
         Pin::new(&mut this.inner).poll_shutdown(cx)
     }
 }

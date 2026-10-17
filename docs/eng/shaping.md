@@ -174,20 +174,19 @@ stages = [
 Here the first 2000 bytes (the ClientHello) are cut 1 byte at a time with no
 delays, and the rest goes in 600–1000 byte chunks with 1–10 ms of jitter.
 
-## `pad`: size equalization + authentication
+## `pad`: size equalization
 
 `pad` is a `Stream → Stream` layer, placed above TLS and below the protocol.
 Every frame on the wire is
-`[tag:32 | payload_len:2 | pad_len:2 | payload | pad]`,
-`tag = HMAC-SHA256(key, seq || lens || payload)`. Both sides share `key`
-(32 bytes hex, generate one with `cargo run -p cray --bin gen_key`); a bad tag
-closes the connection silently. Sequence numbers rule out replay and reorder
-inside the connection.
+`[payload_len:2 | pad_len:2 | payload | pad]`. `pad` is a pure shaper and does
+**not** authenticate: put the `auth` layer under it
+(`tcp → tls → auth → pad → protocol`), otherwise anyone who can reach the port
+controls the lengths the reader trusts. Both ends must run `pad`; the reader
+needs no config, `pad_len` is in the header.
 
 ```toml
 [[outbound.layers]]
 type = "pad"
-key = "<32 bytes hex>"
 stages = [
   { bytes = 2000, size = "1200-1400" },
   { size = "1400" },
@@ -196,13 +195,14 @@ stages = [
 
 Each stage is in exactly one mode: `size` always inflates to S (fixed, range,
 or percent overhead on top of arrival), `upto` only pads up to the cap (`"0"`
-disables padding and keeps authentication only). `stages` count wire bytes —
-the same coordinate system as `jitter` and `fragment`. One side may pad while
-the other sends bare: put `upto = "0"` on the quiet direction.
+disables padding: the frame is just the 4-byte header plus payload). `stages`
+count the payload that arrived from above (what `write()` accepted), not the
+frame size; `jitter` and `fragment` below `pad` count what they receive, that
+is the frames. One side may pad while the other sends bare: put `upto = "0"` on
+the quiet direction.
 
 Placement matters: `tcp → tls → pad` hides padding inside the encryption
-(recommended). `tcp → pad → tls` also works, but exposes framing and the key
-check to DPI — visible handshake bytes before TLS.
+(recommended). `tcp → pad → tls` also works, but exposes the framing to DPI.
 
 ## Logging
 
@@ -225,10 +225,11 @@ RUST_LOG=info,JITTER=trace,FRAG=trace,PAD=trace ./cray --config client.toml
   `"10-10"` always gives 10 in both.
 - `stages` must hold at least one stage: an empty list is rejected at startup.
 - A `pad` stage must set either `size` or `upto`, not both and not none —
-  also a startup error. Frame sizes at or below the 36-byte header are
-  rejected as well.
-- `pad` on one side only gives garbage at the first header: the tag never
-  matches and the connection is closed. If both sides log `bad tag`, check
-  that the `key` is identical and `pad` is present on both ends.
+  also a startup error. Frame sizes at or below the 4-byte header, or above
+  16388, are rejected as well (`0` means no padding). Only the last stage may
+  omit `bytes`, and `bytes` must increase from stage to stage.
+- `pad` on one side only gives garbage at the first header: the length limits
+  fail or the reader above sees broken data and the connection is closed.
+  Check that `pad` is present on both ends.
 - Using both layers on every connection costs throughput and adds latency.
   Measure before you enable them for bulk traffic.

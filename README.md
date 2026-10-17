@@ -48,9 +48,9 @@ There is no `client`/`server` flag anymore: behavior follows position. Inbound l
 | `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `vless` | Protocol: VLESS-style header with UUID authentication (TCP). | Same. |
-| `pad` | Size equalization + peer authentication by key (`key` + `stages`). | Same, with the same `key`. |
+| `pad` | Size equalization, a pure shaper (`stages`, no keys; see [docs/eng/shaping.md](docs/eng/shaping.md)). | Same. |
 
-Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes framing and the key check to DPI — visible handshake bytes before TLS.
+Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes the framing to DPI. `pad` does not authenticate; put the `auth` layer under it (`tcp → tls → auth → pad → protocol`).
 
 The `http2` layer, or any multiplexing transport, takes a socket and exposes a virtual stream. The protocol therefore does not care what is underneath it: raw TCP, TLS, or HTTP/2. It simply reads from and writes to a stream.
 
@@ -210,7 +210,10 @@ Working:
 
 **Plans:**
 1. Full VLESS wire compatibility (see the warning above), UDP and Mux commands, and replay protection (nonce cache).
-2. `auth/`: verifiers and generators.
+2. `auth`: a `Stream → Stream` layer that authenticates traffic before shaping:
+   `[nonce:16 | timestamp:8 | tag:16/32] + [len:2 + AEAD(payload)]` per record,
+   one shared key. Sits under shaping layers (`tcp → tls → auth → pad → proto`),
+   so `pad` stays a blind shaper and only `auth` pays for crypto.
 3. Two-level verification: level 1 on the nginx side (HMAC cookie, timestamp; if no cookie is present, serve a genuine static website), level 2 in the protocol (on rejection, show a mirror of the real error page rather than a TCP RST).
 4. A declarative protocol description language (DSL) for people who do not want to write Rust code. Rust authors retain full flexibility; the DSL is limited to a closed set of verifiers.
 5. Custom transports and protocols as extensions, HTTP/1.1 and WebSocket support, and UDP.
