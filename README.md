@@ -49,8 +49,9 @@ There is no `client`/`server` flag anymore: behavior follows position. Inbound l
 | `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
 | `vless` | Protocol: VLESS-style header with UUID authentication (TCP). | Same. |
 | `pad` | Size equalization, a pure shaper (`stages`, no keys; see [docs/eng/shaping.md](docs/eng/shaping.md)). | Same. |
+| `auth` | Frame authentication: an HMAC-SHA256 tag over every record, one shared key, no handshake; see [docs/eng/auth.md](docs/eng/auth.md). | Same (identical key on both ends). |
 
-Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes the framing to DPI. `pad` does not authenticate; put the `auth` layer under it (`tcp → tls → auth → pad → protocol`).
+Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes the framing to DPI. `pad` does not authenticate; put the `auth` layer under it (`tcp → tls → auth → pad → protocol`; see [docs/eng/auth.md](docs/eng/auth.md)).
 
 The `http2` layer, or any multiplexing transport, takes a socket and exposes a virtual stream. The protocol therefore does not care what is underneath it: raw TCP, TLS, or HTTP/2. It simply reads from and writes to a stream.
 
@@ -203,6 +204,7 @@ Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection d
 
 Working:
 - `tcp`, `unix`, `tls`, `http2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
+- The `auth` layer: per-frame HMAC-SHA256 authentication (v1 — tag only, no replay protection yet); see [docs/eng/auth.md](docs/eng/auth.md).
 - Building client and server layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).
 
@@ -210,10 +212,8 @@ Working:
 
 **Plans:**
 1. Full VLESS wire compatibility (see the warning above), UDP and Mux commands, and replay protection (nonce cache).
-2. `auth`: a `Stream → Stream` layer that authenticates traffic before shaping:
-   `[nonce:16 | timestamp:8 | tag:16/32] + [len:2 + AEAD(payload)]` per record,
-   one shared key. Sits under shaping layers (`tcp → tls → auth → pad → proto`),
-   so `pad` stays a blind shaper and only `auth` pays for crypto.
+2. `auth`: replay protection (nonce cache and a masked timestamp, no handshake
+   still) and an AEAD record mode (`[nonce:16 | ts':8 | len:2 | AEAD(payload)]`).
 3. Two-level verification: level 1 on the nginx side (HMAC cookie, timestamp; if no cookie is present, serve a genuine static website), level 2 in the protocol (on rejection, show a mirror of the real error page rather than a TCP RST).
 4. A declarative protocol description language (DSL) for people who do not want to write Rust code. Rust authors retain full flexibility; the DSL is limited to a closed set of verifiers.
 5. Custom transports and protocols as extensions, HTTP/1.1 and WebSocket support, and UDP.

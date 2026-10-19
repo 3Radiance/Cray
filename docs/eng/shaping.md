@@ -180,9 +180,9 @@ delays, and the rest goes in 600–1000 byte chunks with 1–10 ms of jitter.
 Every frame on the wire is
 `[payload_len:2 | pad_len:2 | payload | pad]`. `pad` is a pure shaper and does
 **not** authenticate: put the `auth` layer under it
-(`tcp → tls → auth → pad → protocol`), otherwise anyone who can reach the port
-controls the lengths the reader trusts. Both ends must run `pad`; the reader
-needs no config, `pad_len` is in the header.
+(`tcp → tls → auth → pad → protocol`; see [auth.md](auth.md)), otherwise anyone
+who can reach the port controls the lengths the reader trusts. Both ends must
+run `pad`; the reader needs no config, `pad_len` is in the header.
 
 ```toml
 [[outbound.layers]]
