@@ -272,7 +272,6 @@ impl<S> PadStream<S> {
             match size {
                 PadSize::Fixed(n) => *n,
                 PadSize::Range(min, max) => rng.random_range(*min..=*max),
-                // pad_len = p% of what arrived
                 PadSize::Percent(p) => HDR + arrival + arrival.saturating_mul(*p as usize) / 100,
             }
         } else if let Some(upto) = &st.upto {

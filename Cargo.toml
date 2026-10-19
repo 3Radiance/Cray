@@ -31,8 +31,6 @@ flate2 = "1"
 zstd = "0.14"
 foreign-types-shared = "0.3"
 dashmap = "6.2.1"
-hmac = "0.12"
-sha2 = "0.10"
 
 cray-core = { path = "core" }
 cray-layers = { path = "layers" }
