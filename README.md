@@ -29,7 +29,7 @@ The configuration is a TOML file with two layer chains:
 - **`inbound.layers`**: how to accept a connection;
 - **`outbound.layers`**: how to connect onward.
 
-There is no `client`/`server` flag anymore: behavior follows position. Inbound layers listen and accept, outbound layers dial. A terminal (protocol) layer at the end of outbound means this side initiates (client); at the end of inbound, it means this side accepts (server).
+There is no `client`/`server` flag anymore: behavior follows position. Inbound layers listen and accept, outbound layers dial. A terminal (protocol) layer at the end of outbound means this side initiates; at the end of inbound, it means this side accepts.
 
 **Chain rules:**
 - The first layer is the connection source (`tcp` or `unix`);
@@ -38,16 +38,16 @@ There is no `client`/`server` flag anymore: behavior follows position. Inbound l
 
 ### Layers
 
-| Layer | Client | Server |
+| Layer | outbound | inbound |
 |---|---|---|
-| `tcp` | Inbound: listens on `addr`. Outbound: connects to `addr`. | Inbound: listens on `addr`. Outbound: without `addr`, connects directly to the destination (like “freedom/direct”). |
-| `unix` | Inbound: listens on `addr`. Outbound: connects to `addr`. | Inbound: listens on `addr`. Outbound: connects to `addr`. |
-| `http-proxy` | Accepts HTTP CONNECT from the browser and extracts the destination address. | Proxy chaining: sends CONNECT to a fixed `addr` through the previous stream. |
-| `tls` | Client handshake: `sni` and a configurable fingerprint. | Acceptor: performs a handshake using your certificates. |
-| `http2` | Opens a POST/PUT request and exposes a **virtual stream**. | HTTP/2 server: accepts streams and passes each onward as a separate stream. |
-| `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
-| `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, for the traffic the server sends. |
-| `vless` | Protocol: VLESS-style header with UUID authentication (TCP). | Same. |
+| `tcp` | Dials `addr`; without `addr`, connects directly to the destination (like “freedom/direct”). | Listens on `addr`. |
+| `unix` | Connects to `addr`. | Listens on `addr`. |
+| `http-proxy` | Proxy chaining: sends CONNECT to a fixed `addr` through the previous stream. | Accepts HTTP CONNECT from the browser and extracts the destination address. |
+| `tls` | Outbound handshake: `sni` and a configurable fingerprint. | Terminates TLS: picks the certificate by SNI (`certs`/`default`) and performs the handshake. |
+| `http2` | Opens a POST/PUT request and exposes a **virtual stream**. | Accepts HTTP/2 requests and passes each onward as a separate virtual stream. |
+| `jitter` | Adds a random delay before every write; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, on writes of this side. |
+| `fragment` | Cuts every write into smaller pieces; see [docs/eng/shaping.md](docs/eng/shaping.md). | Same, on writes of this side. |
+| `vless` | Protocol: wraps the stream into VLESS framing — a UUID-authenticated header (TCP command), the target address, then the payload. | Protocol: unwraps VLESS framing, verifies the UUID, dials the target and pipes the two ends together. |
 | `pad` | Size equalization, a pure shaper (`stages`, no keys; see [docs/eng/shaping.md](docs/eng/shaping.md)). | Same. |
 | `auth` | Frame authentication: an HMAC-SHA256 tag over every record, one shared key, no handshake; see [docs/eng/auth.md](docs/eng/auth.md). | Same (identical key on both ends). |
 
@@ -104,8 +104,10 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
-cert = "/path/to/fullchain.pem"
-key = "/path/to/privkey.pem"
+certs = [
+    { sni = "domain.com", cert = "/path/to/fullchain.pem", key = "/path/to/privkey.pem" },
+]
+default = "domain.com"
 alpn = ["h2"]
 
 [[inbound.layers]]
@@ -116,7 +118,7 @@ method = "POST"
 
 [[inbound.layers]]
 type = "vless"
-uuid = "11111111-1111-4111-8111-111111111111"   # the same UUID as on the client
+uuid = "11111111-1111-4111-8111-111111111111"   # the same UUID as in the outbound config
 
 [[outbound.layers]]
 type = "tcp"        # no address: connect to the destination requested by the protocol
@@ -124,9 +126,9 @@ type = "tcp"        # no address: connect to the destination requested by the pr
 
 The same layers are used here, but they act as acceptors:
 
-- `tls` accepts the socket, performs a handshake using your certificates, and passes it onward;
+- `tls` accepts the socket, picks the certificate by the ClientHello SNI (`certs`/`default`), performs the handshake, and passes it onward;
 - `http2` is an HTTP/2 server: it accepts only requests whose `method`, `path` and `host` match, and returns 404 to others;
-- the **server-side protocol function** is then called and given the stream;
+- the **inbound protocol function** is then called and given the stream;
 - `tcp` in outbound, when no address is specified, connects to the destination provided by the protocol.
 
 ---
@@ -205,7 +207,7 @@ Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection d
 Working:
 - `tcp`, `unix`, `tls`, `http2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
 - The `auth` layer: per-frame HMAC-SHA256 authentication (v1 — tag only, no replay protection yet); see [docs/eng/auth.md](docs/eng/auth.md).
-- Building client and server layer chains from config and validating layer order;
+- Building inbound and outbound layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).
 
 > ⚠️ `vless` follows the VLESS header layout only partly and is **not interoperable** with Xray, sing-box or other VLESS clients yet. Differences: domain and IPv6 address types use the SOCKS5-style codes 3 and 4 (VLESS uses 2 and 3), the server sends no response header, request addons are assumed to be empty, and only the TCP command is supported. A Cray client works with a Cray server. The UUID is the only credential, and there is no replay protection yet.

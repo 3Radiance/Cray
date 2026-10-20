@@ -1,15 +1,15 @@
-//! `tls` layer: BoringSSL handshake with a fully configurable ClientHello.
-//! Client and server are both WRAP (Stream -> Stream): the server handshake
-//! runs per accepted connection, fan-out stays upstream.
-//! Handshake logic ported from old-cray `transport/tls`.
-
-use crate::fingerprint::tls::builder::set_alps;
+use crate::fingerprint::tls::{
+    builder::{set_alpn_select_callback, set_alps},
+    cert::CertPair,
+};
 use crate::profiles::{get_http2, get_or_build_tls_connector, get_or_load_tls_acceptor, get_tls};
-use anyhow::{Result, bail};
-use btls::ssl::Ssl;
+use anyhow::{Context, Result, anyhow, bail};
+use btls::ssl::{NameType, SniError, Ssl, SslAcceptor, SslContext, SslMethod};
 use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Input, Layer, Output, Ports, Side, log_tag};
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_btls::SslStream;
@@ -18,17 +18,72 @@ use tokio_btls::SslStream;
 #[serde(deny_unknown_fields)]
 struct TlsCfg {
     sni: Option<String>,
-    cert: Option<String>,
-    key: Option<String>,
+    certs: Option<Vec<TlsLayer>>,
+    default: Option<String>,
     tls_path: Option<String>,
     http2_path: Option<String>,
     alpn: Option<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+
+struct TlsLayer {
+    sni: String,
+    cert: String,
+    key: String,
+}
+
 pub struct Tls {
     cfg: TlsCfg,
     side: Side,
-    alpn_wire: Vec<u8>,
+    bundle: Option<SniBundle>,
+}
+
+struct SniBundle {
+    base: Arc<SslContext>,
+    by_sni: Arc<HashMap<String, Arc<SslContext>>>,
+}
+
+fn build_bundle(certs: &[TlsLayer], default: &str, alpn: &[u8]) -> Result<SniBundle> {
+    let mut by_sni = HashMap::new();
+    for e in certs.iter().filter(|x| x.sni != default) {
+        let a = get_or_load_tls_acceptor(e.cert.as_str(), e.key.as_str(), alpn)?;
+        by_sni.insert(e.sni.clone(), Arc::new(a.context().to_owned()));
+    }
+
+    let map = Arc::new(by_sni);
+    let mut b = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
+    set_alpn_select_callback(&mut b, alpn.to_vec());
+    let d = certs
+        .iter()
+        .find(|d| d.sni == default)
+        .with_context(|| anyhow!("tls inbound dont found default cert"))?;
+    let pair = CertPair::load(&d.cert, &d.key)?;
+    if let Some(leaf) = pair.chain.first() {
+        b.set_certificate(leaf)?;
+    }
+    for cert in pair.chain.iter().skip(1) {
+        b.add_extra_chain_cert(cert.clone())?;
+    }
+    b.set_private_key(&pair.key)?;
+    b.check_private_key()?;
+
+    b.set_servername_callback({
+        let map = Arc::clone(&map);
+        move |ssl, _alert| match ssl.servername(NameType::HOST_NAME) {
+            Some(name) => match map.get(name) {
+                Some(ctx) => ssl.set_ssl_context(ctx).map_err(|_| SniError::ALERT_FATAL),
+                None => Ok(()),
+            },
+            None => Ok(()),
+        }
+    });
+
+    Ok(SniBundle {
+        base: Arc::new(b.build().context().to_owned()),
+        by_sni: map,
+    })
 }
 
 async fn client_handshake<W>(
@@ -67,24 +122,13 @@ where
     Ok(Box::pin(remote))
 }
 
-async fn server_handshake<P>(
-    plain: P,
-    cert: &str,
-    key: &str,
-    alpn_wire: &[u8],
-) -> Result<BoxedStream>
+async fn server_handshake<P>(plain: P, bundle: &SniBundle) -> Result<BoxedStream>
 where
     P: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    log_tag!(
-        trace,
-        "TLS",
-        "Starting server TLS handshake with cert {} and key {}",
-        cert,
-        key
-    );
-    let acceptor = get_or_load_tls_acceptor(cert, key, alpn_wire)?;
-    let ssl = Ssl::new(acceptor.context())?;
+    log_tag!(trace, "TLS", "Starting server TLS handshake");
+
+    let ssl = Ssl::new(&*bundle.base)?;
     let boxed_plain: BoxedStream = Box::pin(plain);
     let mut tls_stream = SslStream::new(ssl, boxed_plain)?;
 
@@ -118,11 +162,8 @@ impl Layer for Tls {
                     client_handshake(stream, sni, tls_path, self.cfg.http2_path.as_deref()).await?
                 }
                 Side::Inbound => {
-                    let (cert, key) = (
-                        self.cfg.cert.as_deref().expect("checked at build"),
-                        self.cfg.key.as_deref().expect("checked at build"),
-                    );
-                    server_handshake(stream, cert, key, &self.alpn_wire).await?
+                    server_handshake(stream, self.bundle.as_ref().expect("checked at build"))
+                        .await?
                 }
             };
             Ok(Output::Stream(out))
@@ -153,9 +194,24 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
             }
         }
         Side::Inbound => {
-            if cfg.cert.is_none() || cfg.key.is_none() {
-                bail!("tls inbound requires 'cert' and 'key'");
+            if cfg.certs.is_none() {
+                bail!("tls inbound requires 'certs'");
             }
+            if cfg.default.is_none() {
+                bail!("tls inbound requires 'default'");
+            }
+            let certs = cfg.certs.as_ref().unwrap();
+            let default = cfg.default.as_ref().unwrap();
+            if certs.iter().all(|x| x.sni.as_str() != default.as_str()) {
+                bail!("tls inbound default '{default}' is not in 'certs'");
+            }
+            let mut seen: HashSet<&str> = HashSet::new();
+            for e in certs {
+                if !seen.insert(e.sni.as_str()) {
+                    bail!("tls inbound: duplicate sni '{}' in 'certs'", e.sni);
+                }
+            }
+
             if cfg.tls_path.is_some() {
                 log_tag!(
                     warn,
@@ -169,10 +225,18 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         (Some(list), _, Side::Inbound) => encode_alpn_wire(list),
         _ => Vec::new(),
     };
+    let bundle = match bcx.side {
+        Side::Inbound => Some(build_bundle(
+            cfg.certs.as_ref().unwrap(),
+            cfg.default.as_ref().unwrap(),
+            &alpn_wire,
+        )?),
+        Side::Outbound => None,
+    };
     Ok(Box::new(Tls {
         cfg,
         side: bcx.side,
-        alpn_wire,
+        bundle,
     }))
 }
 

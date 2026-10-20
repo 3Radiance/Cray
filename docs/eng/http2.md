@@ -2,7 +2,7 @@
 
 HTTP/2 fingerprinting (the Akamai-style hash over SETTINGS, window sizes,
 priorities and header order) is fully configurable through an HTTP/2 profile file
-that the `http2` layer points to with `config`. The client-side `http2` layer shapes everything the
+that the `http2` layer points to with `config`. The outbound `http2` layer shapes everything the
 network can see: the connection preface, the SETTINGS frame, stream
 priorities, pseudo-header order and header order
 (`layers/src/fingerprint/http2/`).
@@ -14,7 +14,7 @@ configuration in the profile.
 
 ## How the layer works
 
-Client (`outbound.layers`):
+Outbound (`outbound.layers`):
 
 ```
 tls stream ──▶ http2 layer ──▶ virtual stream ──▶ protocol
@@ -26,11 +26,11 @@ tls stream ──▶ http2 layer ──▶ virtual stream ──▶ protocol
                     the response body is the download direction
 ```
 
-Server (`inbound.layers`):
+Inbound (`inbound.layers`):
 
 ```
 tls stream ──▶ http2 layer ──▶ one virtual stream per accepted request ──▶ protocol
-                 1. HTTP/2 server handshake (5 second timeout by default, `timeout` field)
+                 1. HTTP/2 inbound handshake (5 second timeout by default, `timeout` field)
                  2. every request whose method, path and host match is answered 200
                     (content-type: application/octet-stream),
                     anything else is answered 404
@@ -39,12 +39,12 @@ tls stream ──▶ http2 layer ──▶ one virtual stream per accepted reque
 
 The layer takes the connection and hands a **virtual stream** outward. For the
 protocol on top it is a plain byte stream, the same as a TCP socket: bytes
-written go out as DATA frames in the request body (client) or the response body
-(server), and bytes read come from the opposite direction. Flow control
+written go out as DATA frames in the request body (outbound) or the response body
+(inbound), and bytes read come from the opposite direction. Flow control
 (`WINDOW_UPDATE`) is handled inside the layer. Closing the write side sends an
 empty DATA frame with `END_STREAM`.
 
-The profile shapes the client side only. The server ignores it and uses fixed
+The profile shapes the outbound side only. Inbound ignores it and uses fixed
 settings (128 concurrent streams, 1 MiB stream window, 4 MiB connection
 window).
 
@@ -59,7 +59,7 @@ method = "POST"
 config = "./http2.toml"
 ```
 
-| Field | Client | Server |
+| Field | outbound | inbound |
 |---|---|---|
 | `path` | required: request `:path` | required: requests must match, others get 404 |
 | `method` | required: `POST` or `PUT` | required: requests must match, others get 404 |
@@ -172,7 +172,7 @@ Firefox), so this field matters more than it looks.
 
 ### `initial_stream_id`: first request stream
 
-Explicit first client-initiated stream ID. When omitted, it is derived:
+Explicit first outbound-initiated stream ID. When omitted, it is derived:
 
 - no priority frames: `1`;
 - with priority frames: the highest configured priority `stream_id` plus 2
@@ -202,7 +202,7 @@ weight = 101
 
 | Field | Meaning |
 |---|---|
-| `stream_id` | Stream the priority attaches to (client streams are odd). |
+| `stream_id` | Stream the priority attaches to (outbound streams are odd). |
 | `exclusive` | Whether the dependency is exclusive. |
 | `depends_on` | Parent stream ID (`0` = connection root). |
 | `weight` | Raw value, 0 to 255. |
@@ -273,11 +273,11 @@ Rules that follow from this:
 
 Bodies stream in both directions and are never buffered as a whole. One tunnel
 is one HTTP/2 stream, and one HTTP/2 connection carries one tunnel from the
-client for now (multiplexing several tunnels over one connection is planned).
+outbound for now (multiplexing several tunnels over one connection is planned).
 
-The client does not wait for the response headers before the first write.
+The outbound does not wait for the response headers before the first write.
 They are read lazily on the first read from the stream, so a protocol that
-sends first and listens later cannot deadlock against a server that replies
+sends first and listens later cannot deadlock against an inbound that replies
 only after reading.
 
 ## ALPS coupling
@@ -301,17 +301,17 @@ frame and the ALPS payload is itself a fingerprint signal.
   connection. Prefer to omit it and let it derive.
 - `http_headers` keys must be lowercase, and every header must be listed in
   `headers_order` to get a defined position.
-- The server accepts only requests whose method, path and host match the layer;
-  everything else gets 404. A client and a server with different `path`,
+- Inbound accepts only requests whose method, path and host match the layer;
+  everything else gets 404. An outbound and an inbound with different `path`,
   `method` or `host` values never connect.
-- The server compares `host` with the host part of `:authority`, without the
+- Inbound compares `host` with the host part of `:authority`, without the
   port. Write `host = "example.com"`, not `"example.com:443"`. Behind a reverse
   proxy the value is whatever the proxy forwards as `:authority`.
-- The client `http2` layer needs `config`. The TLS layer needs `http2_path`
+- The outbound `http2` layer needs `config`. The TLS layer needs `http2_path`
   only when `alps = true`; point both at the same file.
 - Unknown keys are ignored without any warning (this includes the former
   `end_stream_on_headers` key). If a setting seems to have no effect, check the
   spelling of the key first.
-- To verify the result, capture the client's traffic (Wireshark) or log the
+- To verify the result, capture the outbound's traffic (Wireshark) or log the
   JA3/JA4 and HTTP/2 fingerprint on the server side (for example in nginx),
   and compare it with a capture of the real browser you imitate.

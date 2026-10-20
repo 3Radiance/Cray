@@ -2,8 +2,8 @@
 
 `auth` is a plain wrapper: it takes any stream and returns a stream, with no
 sockets and no knowledge of the transport or the protocol above and below it.
-It works in `inbound.layers` and in `outbound.layers`, on the client and on the
-server; behavior is defined only by `Side`, there are no per-side settings.
+It works in `inbound.layers` and in `outbound.layers`; behavior is defined only
+by `Side`, there are no per-side settings.
 
 Every frame on the wire is authenticated with a shared key. This is not a
 handshake and not a key exchange: the key lives in the config on both ends:

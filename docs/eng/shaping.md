@@ -2,7 +2,7 @@
 
 Both layers are plain wrappers. They take any stream and return a stream: no
 sockets, no profile files, and no knowledge of the transport or the protocol
-below and above them. They work on the client and on the server, in
+below and above them. They work on inbound and outbound, in
 `inbound.layers` or in `outbound.layers`, anywhere between the source layer
 (`tcp` or `unix`) and the protocol.
 

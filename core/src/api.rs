@@ -86,6 +86,7 @@ pub enum Output {
     Stream(BoxedStream),
     Streams(BoxedIncoming),
     Done,
+    Consumed,
 }
 
 pub trait Layer: Send + Sync + 'static {

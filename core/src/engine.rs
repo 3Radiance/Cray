@@ -1,4 +1,4 @@
-use crate::api::{BoxFuture, BuildCx, ConnectRequest, Input, Output, Port, Side};
+use crate::api::{BoxFuture, BuildCx, Input, Output, Port, Side};
 use crate::chain::{Chain, Entry, build_entries, check_links, check_requires, feeds_stream};
 use crate::config::AppConfig;
 use crate::cx::{Cx, Key, key};
@@ -80,9 +80,7 @@ impl Engine {
             &mut with_dialer,
             "terminal",
         )?;
-        let mut dial_provided = provided.clone();
-        dial_provided.insert(key::<ConnectRequest>());
-        check_requires(&dial, &mut dial_provided, "outbound")?;
+        check_requires(&dial, &mut provided, "outbound")?;
 
         Ok(Engine {
             head: Arc::new(Chain { entries: head }),
@@ -128,6 +126,7 @@ fn drive(eng: Arc<Engine>, i: usize, input: Input, mut cx: Cx) -> BoxFuture<'sta
                 "layer '{}' gave Done in the middle of the chain",
                 eng.head.entries[i].name
             ),
+            Output::Consumed => Ok(()),
         }
     })
 }

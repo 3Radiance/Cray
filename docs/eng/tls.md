@@ -1,13 +1,14 @@
 # TLS Fingerprint Customization
 
-The client-side `tls` layer builds its ClientHello entirely from a TLS profile
+The outbound `tls` layer builds its ClientHello entirely from a TLS profile
 file that the layer points to: cipher order, extensions and their order, curves,
 signature algorithms, ALPN, GREASE, certificate compression. Every byte of the
 ClientHello that fingerprinting sees is under your control. The stack is
 BoringSSL via `btls` / `tokio-btls` (`layers/src/fingerprint/tls/`).
 
-The server-side `tls` layer is a plain acceptor. It is **not** fingerprint-shaped:
-it only needs a certificate, a key and an ALPN list.
+The inbound `tls` layer terminates TLS and picks the certificate by the
+connection's SNI: a list of `domain -> certificate` pairs lives in `certs`, and
+`default` is the certificate served to clients with a different or missing SNI.
 
 ## Where the settings live
 
@@ -34,20 +35,23 @@ cipher_suites = [ ... ]
 # server.toml
 [[inbound.layers]]
 type = "tls"
-cert = "/path/to/fullchain.pem"
-key = "/path/to/privkey.pem"
-alpn = ["h2"]                  # on the server ALPN comes from the layer, tls_path is ignored
+certs = [
+    { sni = "up.example.com",   cert = "/path/to/up.pem",   key = "/path/to/up.key" },
+    { sni = "down.example.com", cert = "/path/to/down.pem", key = "/path/to/down.key" },
+]
+default = "up.example.com"     # for a miss or an absent SNI
+alpn = ["h2"]                  # on inbound ALPN comes from the layer, tls_path is ignored
 ```
 
 Layer fields:
 
-| Field | Client | Server |
+| Field | outbound | inbound |
 |---|---|---|
 | `sni` | required: the name sent in the ClientHello and checked against the certificate | not used |
 | `tls_path` | required: the fingerprint profile | ignored (a warning is logged) |
 | `alpn` | not used | ALPN protocols to accept, e.g. `["h2"]` |
 | `http2_path` | required, but the file is read only when `alps = true`; otherwise any placeholder string works | not used |
-| `cert`, `key` | not used | required: PEM certificate chain and private key |
+| `certs`, `default` | not used | required: a list of `{ sni, cert, key }` entries and, among them, the `sni` served when SNI is missing or does not match |
 | `timeout` | seconds (`timeout = 6`) or preset name (`timeout = "tls"`); default 6 | same; default 6 |
 
 How the files are handled:
@@ -62,6 +66,22 @@ How the files are handled:
 - A missing required layer field is reported at startup, before listening.
 
 TOML has no `null`. To leave an optional field unset, **omit the key**.
+
+## SNI-based certificate selection (inbound)
+
+The certificate is chosen by the SNI from the ClientHello:
+
+- the match against `sni` in `certs` is exact; wildcard names (`*.example.com`)
+  are not supported yet;
+- when SNI is absent or matches nothing, the `default` certificate is served;
+- all pairs are loaded and validated at startup: paths exist, PEM parses, the
+  key matches the certificate, `sni` entries are unique, `default` refers to an
+  existing entry. Any of these errors keeps the proxy from starting;
+- the same `cert`/`key` used by several entries is not loaded twice: contexts
+  are cached by the triple `cert`, `key`, `alpn` list;
+- the choice is injected mid-handshake (`set_ssl_context` from the servername
+  callback). From the outside the connection is terminated by one ordinary SSL;
+  the selection logic is invisible to the peer.
 
 ## Timeouts
 
@@ -91,7 +111,7 @@ loading, so the proxy refuses to start.
 
 ## Connection flow
 
-Client (`outbound.layers`):
+Outbound (`outbound.layers`):
 
 ```
 tcp socket ──▶ tls layer ──▶ next layer (http2, protocol, ...)
@@ -101,29 +121,32 @@ tcp socket ──▶ tls layer ──▶ next layer (http2, protocol, ...)
                  4. verify the server certificate, return the encrypted stream
 ```
 
-Server (`inbound.layers`):
+Inbound (`inbound.layers`):
 
 ```
 tcp socket ──▶ tls layer ──▶ next layer (http2, protocol, ...)
-                 1. SslAcceptor (mozilla_intermediate) with cert chain and key (built once per cert/key pair)
+                 1. SslAcceptor (mozilla_intermediate): the default pair + an SNI -> SslContext table
+                    (contexts for every pair in certs, cache keyed by cert/key/alpn)
                  2. ALPN select callback, client preference order
-                 3. handshake, 6 second timeout by default (see "Timeouts")
+                 3. mid-handshake: SNI from the ClientHello picks the context;
+                    miss or no SNI -> the default context stays
+                 4. handshake, 6 second timeout by default (see "Timeouts")
 ```
 
 The ALPN callback walks the client's list in order and picks the first protocol
-that also appears in the server's `alpn`. If nothing matches, no ALPN is
+that also appears in inbound's `alpn`. If nothing matches, no ALPN is
 negotiated.
 
-The client connector is assembled in `tls_builder`
+The outbound connector is assembled in `tls_builder`
 (`layers/src/fingerprint/tls/builder.rs`) in this order: Chromium root store → cipher
 suites → ALPN → curves → signature algorithms → record size limit →
 certificate compression → GREASE → extension permutation → OCSP → SCT →
 session ticket → delegated credentials → extension order. ALPS is attached per
 connection.
 
-### Server certificate verification
+### Server certificate verification (outbound)
 
-The client verifies the server certificate against the Chromium root store and
+The outbound verifies the server certificate against the Chromium root store and
 checks the host name against `sni`. Use a publicly trusted certificate (for
 example Let's Encrypt) whose name matches `sni`. Self-signed or private CAs are
 not supported yet.
@@ -213,11 +236,11 @@ ECDHE-PSK-CHACHA20-POLY1305
 
 ### `alpn`: protocol list
 
-Encoded into the length-prefixed wire format and offered to the server on the
-client, or used as the accepted list on the server. Entries that are empty or
+Encoded into the length-prefixed wire format and offered to the server by the
+outbound layer, or used as the accepted list on inbound. Entries that are empty or
 longer than 255 bytes are skipped silently. If `alpn` is omitted, no ALPN is
 sent or accepted, and the `http2` layer cannot be used over this TLS
-connection. **On the server, set `alpn = ["h2"]` on the `tls` layer itself
+connection. **On inbound, set `alpn = ["h2"]` on the `tls` layer itself
 when the chain contains an `http2` layer.**
 
 ### `curves`: supported groups, in order
@@ -353,7 +376,7 @@ ecdsa_sha1
 
 ### `record_size_limit`: integer
 
-Advertises the maximum TLS record size the client accepts (the
+Advertises the maximum TLS record size the outbound accepts (the
 `record_size_limit` extension, 16-bit value). Omit the key to leave the
 extension out.
 
@@ -379,16 +402,17 @@ itself is not produced yet. ECH lookup over DoH is planned.
 
 - `cipher_suites`, `curves` and `signature_algorithms` must be set. An omitted
   list becomes an empty list, and BoringSSL rejects it.
-- `http2_path` must be present on the client `tls` layer even when `alps` is
+- `http2_path` must be present on the outbound `tls` layer even when `alps` is
   `false`. It is only read when `alps = true`, so a placeholder is fine then.
 - `extensions_order` must list **every** active extension, or positions are
   undefined. When in doubt, capture a real browser Hello (for example with
   `tls.peet.ws` or Wireshark) and mirror it.
 - `permute_extensions = true` together with `extensions_order` is a
   contradictory config. Pick one.
-- A server using an `http2` layer needs `alpn = ["h2"]` on its `tls`
+- Inbound using an `http2` layer needs `alpn = ["h2"]` on its `tls`
   layer; otherwise the HTTP/2 handshake fails.
-- The server's acceptor is cached by `cert`, `key` and the `alpn` list.
+- Inbound acceptor contexts are cached by `cert`, `key` and the `alpn` list; per connection the
+  context matching the ClientHello SNI is switched in.
 - Unknown keys in a profile are ignored without any warning. If a setting seems
   to have no effect, check the spelling of the key first.
 - The server certificate must be trusted by the Chromium root store and match

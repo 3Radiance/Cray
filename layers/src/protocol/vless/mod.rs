@@ -48,6 +48,13 @@ impl Layer for Vless {
         }
     }
 
+    fn provides(&self) -> Vec<Key> {
+        match self.side {
+            Side::Inbound => vec![key::<ConnectRequest>()],
+            _ => Vec::new(),
+        }
+    }
+
     fn call<'a>(&'a self, input: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             match self.side {

@@ -19,6 +19,9 @@ impl Dialer {
         for e in &self.chain.entries {
             match with_timeout(&e.name, e.timeout, e.layer.call(input, &mut cx)).await? {
                 Output::Stream(s) => input = Input::Stream(s),
+                Output::Consumed => {
+                    bail!("layer '{}' consumed the stream in the dial chain", e.name)
+                }
                 _ => bail!("dial chain: layer '{}' must give a single stream", e.name),
             }
         }

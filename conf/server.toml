@@ -4,8 +4,11 @@ addr = "127.0.0.1:10811"
 
 [[inbound.layers]]
 type = "tls"
-cert = "/path/to/fullchain.pem"
-key = "/path/to/privkey.pem"
+certs = [
+    { sni = "up.example.com",   cert = "/path/to/up.pem",   key = "/path/to/up.key" },
+    { sni = "down.example.com", cert = "/path/to/down.pem", key = "/path/to/down.key" },
+]
+default = "up.example.com"
 alpn = ["h2"]
 
 [[inbound.layers]]
