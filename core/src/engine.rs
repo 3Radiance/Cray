@@ -1,4 +1,4 @@
-use crate::api::{BoxFuture, BuildCx, Input, Output, Port, Side};
+use crate::api::{BoxFuture, BuildCx, ConnectRequest, Input, Output, Port, Side};
 use crate::chain::{Chain, Entry, build_entries, check_links, check_requires, feeds_stream};
 use crate::config::AppConfig;
 use crate::cx::{Cx, Key, key};
@@ -6,10 +6,16 @@ use crate::dial::Dialer;
 use crate::log_tag;
 use crate::registry::Registry;
 use anyhow::{Result, anyhow, bail, ensure};
-use std::{collections::HashSet, future::Future, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    future::Future,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 pub struct Engine {
     head: Arc<Chain>,
+    head_stages: Vec<Arc<Entry>>,
     terminal: Entry,
     dialer: Dialer,
 }
@@ -27,11 +33,21 @@ pub(crate) async fn with_timeout<T>(
     }
 }
 
-fn take_terminal(entries: &mut Vec<Entry>) -> Option<Entry> {
-    let is_terminal = entries
-        .last()
-        .is_some_and(|e| e.layer.ports().gives == Port::Done);
-    if is_terminal { entries.pop() } else { None }
+fn is_proto(e: &Entry) -> bool {
+    e.layer.ports().gives == Port::Done
+}
+
+fn split_protocols(entries: &mut Vec<Entry>, label: &str) -> Result<Vec<Entry>> {
+    let at = entries
+        .iter()
+        .position(|e| is_proto(e))
+        .unwrap_or(entries.len());
+    let protos = entries.split_off(at);
+    ensure!(
+        protos.iter().all(|e| is_proto(e)),
+        "{label}: protocol layers must be contiguous at the end of the list"
+    );
+    Ok(protos)
 }
 
 impl Engine {
@@ -40,14 +56,18 @@ impl Engine {
         let mut head = build_entries(&cfg.inbound.layers, &bcx(Side::Inbound), reg, cfg)?;
         let mut dial = build_entries(&cfg.outbound.layers, &bcx(Side::Outbound), reg, cfg)?;
 
-        let terminal = match (take_terminal(&mut head), take_terminal(&mut dial)) {
-            (Some(t), None) | (None, Some(t)) => t,
-            (None, None) => bail!(
-                "no terminal (protocol) layer: expected it as the last layer of inbound or outbound"
-            ),
-            (Some(_), Some(_)) => {
-                bail!("terminal (protocol) layer found in both inbound and outbound")
+        let mut head_protos = split_protocols(&mut head, "inbound")?;
+        let dial_protos = split_protocols(&mut dial, "outbound")?;
+
+        let (terminal, head_stages, dial_stages) = match (head_protos.pop(), dial_protos.is_empty())
+        {
+            (Some(t), _) => (t, head_protos, dial_protos),
+            (None, false) => {
+                let mut p = dial_protos;
+                let t = p.remove(0);
+                (t, Vec::new(), p)
             }
+            (None, true) => bail!("no terminal (protocol) layer in inbound or outbound"),
         };
         ensure!(
             terminal.layer.ports().takes == Port::Stream,
@@ -73,21 +93,40 @@ impl Engine {
         let mut provided: HashSet<Key> = HashSet::new();
         check_requires(&head, &mut provided, "inbound")?;
         provided.extend(terminal.layer.provides());
-        let mut with_dialer = provided.clone();
-        with_dialer.insert(key::<Dialer>());
-        check_requires(
-            std::slice::from_ref(&terminal),
-            &mut with_dialer,
-            "terminal",
-        )?;
-        check_requires(&dial, &mut provided, "outbound")?;
+
+        let mut term_env = provided.clone();
+        term_env.insert(key::<Dialer>());
+        check_requires(std::slice::from_ref(&terminal), &mut term_env, "terminal")?;
+
+        let mut stage_env = provided.clone();
+        stage_env.insert(key::<Dialer>());
+        stage_env.insert(key::<ConnectRequest>());
+        for s in head_stages.iter().chain(dial_stages.iter()) {
+            ensure!(
+                s.layer.ports().takes == Port::Stream,
+                "stage '{}' must take a stream",
+                s.name
+            );
+            check_requires(std::slice::from_ref(s), &mut stage_env.clone(), "stage")?;
+        }
+
+        let mut dial_provided = provided.clone();
+        dial_provided.insert(key::<ConnectRequest>());
+        check_requires(&dial, &mut dial_provided, "outbound")?;
+
+        let mut dialer = Dialer::Chain(Arc::new(Chain { entries: dial }));
+        for p in dial_stages.into_iter().rev() {
+            dialer = Dialer::Stage {
+                below: Arc::new(dialer),
+                stage: Arc::new(p),
+            };
+        }
 
         Ok(Engine {
             head: Arc::new(Chain { entries: head }),
+            head_stages: head_stages.into_iter().map(Arc::new).collect(),
             terminal,
-            dialer: Dialer {
-                chain: Arc::new(Chain { entries: dial }),
-            },
+            dialer,
         })
     }
 
@@ -99,6 +138,19 @@ impl Engine {
 fn drive(eng: Arc<Engine>, i: usize, input: Input, mut cx: Cx) -> BoxFuture<'static, Result<()>> {
     Box::pin(async move {
         let Some(e) = eng.head.entries.get(i) else {
+            let mut input = input;
+            for st in &eng.head_stages {
+                let (a, b) = tokio::io::duplex(32 * 1024);
+                let mut c = cx.clone();
+                c.put(Dialer::Once(Arc::new(Mutex::new(Some(Box::pin(b))))));
+                let st = st.clone();
+                let inp = std::mem::replace(&mut input, Input::Stream(Box::pin(a)));
+                tokio::spawn(async move {
+                    if let Err(e) = st.layer.call(inp, &mut c).await {
+                        log_tag!(error, "CHAIN", "stage '{}': {:#}", st.name, e);
+                    }
+                });
+            }
             cx.put(eng.dialer.clone());
             return match eng.terminal.layer.call(input, &mut cx).await? {
                 Output::Done => Ok(()),

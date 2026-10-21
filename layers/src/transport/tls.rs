@@ -42,7 +42,7 @@ pub struct Tls {
 
 struct SniBundle {
     base: Arc<SslContext>,
-    by_sni: Arc<HashMap<String, Arc<SslContext>>>,
+    _by_sni: Arc<HashMap<String, Arc<SslContext>>>,
 }
 
 fn build_bundle(certs: &[TlsLayer], default: &str, alpn: &[u8]) -> Result<SniBundle> {
@@ -82,7 +82,7 @@ fn build_bundle(certs: &[TlsLayer], default: &str, alpn: &[u8]) -> Result<SniBun
 
     Ok(SniBundle {
         base: Arc::new(b.build().context().to_owned()),
-        by_sni: map,
+        _by_sni: map,
     })
 }
 
