@@ -38,10 +38,7 @@ fn is_proto(e: &Entry) -> bool {
 }
 
 fn split_protocols(entries: &mut Vec<Entry>, label: &str) -> Result<Vec<Entry>> {
-    let at = entries
-        .iter()
-        .position(is_proto)
-        .unwrap_or(entries.len());
+    let at = entries.iter().position(is_proto).unwrap_or(entries.len());
     let protos = entries.split_off(at);
     ensure!(
         protos.iter().all(is_proto),
