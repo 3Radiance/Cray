@@ -254,15 +254,15 @@ down = [
 
 - **Maintainer:** [Three_Radiance](https://github.com/3Radiance) — author and maintainer
 
-See the full list in [CONTRIBUTORS.md](CONTRIBUTORS.md) and the contribution guide in [CONTRIBUTING.md](CONTRIBUTING.md). All contributions are licensed under [GPL-2.0](LICENSE).
+See the full list in [CONTRIBUTORS.md](CONTRIBUTORS.md) and the contribution guide in [CONTRIBUTING.md](CONTRIBUTING.md). All contributions are licensed under [GPL-3.0-or-later](LICENSE).
 
 ---
 
 ## License
 
-[![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](LICENSE)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-Cray is licensed under the **GNU General Public License v2.0**.
+Cray is licensed under the **GNU General Public License v3.0 or later**.
 
-This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; version 2 of the License. It is distributed in the hope that it will be useful, but **without any warranty**; see the [full license text](LICENSE) for details.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but **without any warranty**; see the [full license text](LICENSE) for details.
 

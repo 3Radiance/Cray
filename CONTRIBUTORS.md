@@ -18,4 +18,4 @@ _Empty for now — be the first!_
 All PRs are welcome — bug fixes, documentation, tests, new ideas.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the guide.
 
-All contributions are distributed under the terms of the [GPL-2.0](./LICENSE) license.
+All contributions are distributed under the terms of the [GPL-3.0-or-later](./LICENSE) license.

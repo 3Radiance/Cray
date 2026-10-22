@@ -255,14 +255,14 @@ down = [
 
 - **Мейнтейнер:** [Three_Radiance](https://github.com/3Radiance) — автор и мейнтейнер
 
-Полный список — в [CONTRIBUTORS.md](CONTRIBUTORS.md), гайд по вкладу — в [CONTRIBUTING.md](CONTRIBUTING.md). Все вклады распространяются на условиях лицензии [GPL-2.0](LICENSE).
+Полный список — в [CONTRIBUTORS.md](CONTRIBUTORS.md), гайд по вкладу — в [CONTRIBUTING.md](CONTRIBUTING.md). Все вклады распространяются на условиях лицензии [GPL-3.0-or-later](LICENSE).
 
 ---
 
 ## Лицензия
 
-[![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](LICENSE)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-Cray распространяется под лицензией **GNU General Public License v2.0**.
+Cray распространяется под лицензией **GNU General Public License v3.0 или более поздней**.
 
-Это свободное программное обеспечение: вы можете распространять его и/или изменять в соответствии с условиями GNU General Public License версии 2, опубликованной Free Software Foundation. Программа поставляется **без каких-либо гарантий**; подробности — в [полном тексте лицензии](LICENSE).
+Это свободное программное обеспечение: вы можете распространять его и/или изменять в соответствии с условиями GNU General Public License, опубликованной Free Software Foundation, версии 3 или (по вашему выбору) любой более поздней версии. Программа поставляется **без каких-либо гарантий**; подробности — в [полном тексте лицензии](LICENSE).

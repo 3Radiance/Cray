@@ -6,7 +6,7 @@ members = ["core", "layers", "cray"]
 version = "0.1.0"
 edition = "2024"
 authors = ["Three_Radiance"]
-license = "GPL-2.0"
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 anyhow = "1"

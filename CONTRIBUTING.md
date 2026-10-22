@@ -42,7 +42,7 @@ cargo test --workspace
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [GPL-2.0](./LICENSE) license.
+By contributing, you agree that your contributions will be licensed under the [GPL-3.0-or-later](./LICENSE) license.
 
 ---
 
