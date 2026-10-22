@@ -33,8 +33,16 @@ async fn wrap(layer: &dyn Layer, stream: BoxedStream) -> BoxedStream {
 
 async fn roundtrip(stages: &str, msg: &[u8]) -> Vec<u8> {
     let (a, b) = duplex(65536);
-    let mut up = wrap(&*pad_layer(stages, Side::Outbound), Box::pin(a) as BoxedStream).await;
-    let mut dn = wrap(&*pad_layer(stages, Side::Inbound), Box::pin(b) as BoxedStream).await;
+    let mut up = wrap(
+        &*pad_layer(stages, Side::Outbound),
+        Box::pin(a) as BoxedStream,
+    )
+    .await;
+    let mut dn = wrap(
+        &*pad_layer(stages, Side::Inbound),
+        Box::pin(b) as BoxedStream,
+    )
+    .await;
 
     up.write_all(msg).await.unwrap();
     up.shutdown().await.unwrap();
@@ -47,7 +55,11 @@ async fn roundtrip(stages: &str, msg: &[u8]) -> Vec<u8> {
 /// What `pad` puts on the wire for `msg`, read from the raw side.
 async fn wire_of(stages: &str, msg: &[u8]) -> Vec<u8> {
     let (a, mut raw) = duplex(1 << 20);
-    let mut up = wrap(&*pad_layer(stages, Side::Outbound), Box::pin(a) as BoxedStream).await;
+    let mut up = wrap(
+        &*pad_layer(stages, Side::Outbound),
+        Box::pin(a) as BoxedStream,
+    )
+    .await;
     up.write_all(msg).await.unwrap();
     up.shutdown().await.unwrap();
     let mut wire = Vec::new();
@@ -132,8 +144,16 @@ async fn survives_a_tiny_pipe() {
     // a 100-byte pipe forces partial writes of every frame
     let (a, b) = duplex(100);
     let stages = r#"{ size = "1400" }"#;
-    let mut up = wrap(&*pad_layer(stages, Side::Outbound), Box::pin(a) as BoxedStream).await;
-    let mut dn = wrap(&*pad_layer(stages, Side::Inbound), Box::pin(b) as BoxedStream).await;
+    let mut up = wrap(
+        &*pad_layer(stages, Side::Outbound),
+        Box::pin(a) as BoxedStream,
+    )
+    .await;
+    let mut dn = wrap(
+        &*pad_layer(stages, Side::Inbound),
+        Box::pin(b) as BoxedStream,
+    )
+    .await;
 
     let msg: Vec<u8> = (0..100_000u32).map(|i| (i % 253) as u8).collect();
     let want = msg.clone();
@@ -150,7 +170,11 @@ async fn survives_a_tiny_pipe() {
 #[tokio::test]
 async fn empty_decoy_frames_are_skipped() {
     let (mut raw, b) = duplex(4096);
-    let mut dn = wrap(&*pad_layer(r#"{ size = "1400" }"#, Side::Inbound), Box::pin(b) as BoxedStream).await;
+    let mut dn = wrap(
+        &*pad_layer(r#"{ size = "1400" }"#, Side::Inbound),
+        Box::pin(b) as BoxedStream,
+    )
+    .await;
 
     // frame with no payload and 10 bytes of padding, then a real frame
     raw.write_all(&[0, 0, 0, 10]).await.unwrap();
@@ -167,7 +191,11 @@ async fn empty_decoy_frames_are_skipped() {
 #[tokio::test]
 async fn oversized_header_is_rejected() {
     let (mut raw, b) = duplex(4096);
-    let mut dn = wrap(&*pad_layer(r#"{ size = "1400" }"#, Side::Inbound), Box::pin(b) as BoxedStream).await;
+    let mut dn = wrap(
+        &*pad_layer(r#"{ size = "1400" }"#, Side::Inbound),
+        Box::pin(b) as BoxedStream,
+    )
+    .await;
     raw.write_all(&[0xFF, 0xFF, 0, 0]).await.unwrap();
     let mut out = Vec::new();
     assert!(dn.read_to_end(&mut out).await.is_err());
@@ -176,7 +204,11 @@ async fn oversized_header_is_rejected() {
 #[tokio::test]
 async fn eof_inside_a_frame_is_an_error() {
     let (mut raw, b) = duplex(4096);
-    let mut dn = wrap(&*pad_layer(r#"{ size = "1400" }"#, Side::Inbound), Box::pin(b) as BoxedStream).await;
+    let mut dn = wrap(
+        &*pad_layer(r#"{ size = "1400" }"#, Side::Inbound),
+        Box::pin(b) as BoxedStream,
+    )
+    .await;
     raw.write_all(&[0, 10, 0, 0]).await.unwrap();
     raw.write_all(b"short").await.unwrap(); // promised 10 bytes, sent 5
     raw.shutdown().await.unwrap();
@@ -196,8 +228,17 @@ fn config_validation() {
     assert!(build_err(r#"{ bytes = 10 }"#).contains("either"));
     // a middle stage without `bytes` would hide every later stage
     assert!(build_err(r#"{ size = "1200" }, { size = "1400" }"#).contains("only the last"));
-    assert!(build_err(r#"{ bytes = 500, size = "1200" }, { bytes = 100, size = "1400" }"#).contains("increasing"));
-    assert!(try_pad(r#"{ bytes = 500, size = "1200-1400" }, { size = "1400" }"#, Side::Outbound).is_ok());
+    assert!(
+        build_err(r#"{ bytes = 500, size = "1200" }, { bytes = 100, size = "1400" }"#)
+            .contains("increasing")
+    );
+    assert!(
+        try_pad(
+            r#"{ bytes = 500, size = "1200-1400" }, { size = "1400" }"#,
+            Side::Outbound
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -205,6 +246,16 @@ fn old_key_option_is_rejected() {
     let mut reg = Registry::new();
     cray_layers::register(&mut reg);
     let f = reg.get("pad").unwrap();
-    let params: toml::Table = "key = \"00\"\nstages = [{ size = \"1400\" }]".parse().unwrap();
-    assert!(f(&params, &BuildCx { side: Side::Outbound }).is_err());
+    let params: toml::Table = "key = \"00\"\nstages = [{ size = \"1400\" }]"
+        .parse()
+        .unwrap();
+    assert!(
+        f(
+            &params,
+            &BuildCx {
+                side: Side::Outbound
+            }
+        )
+        .is_err()
+    );
 }

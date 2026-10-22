@@ -19,7 +19,9 @@ impl Incoming for OneShot {
 
 struct Src;
 impl Layer for Src {
-    fn ports(&self) -> Ports { Ports::LISTENER }
+    fn ports(&self) -> Ports {
+        Ports::LISTENER
+    }
     fn call<'a>(&'a self, _i: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let (a, mut b) = duplex(64);
@@ -32,11 +34,19 @@ impl Layer for Src {
 
 struct Dst;
 impl Layer for Dst {
-    fn ports(&self) -> Ports { Ports::SOURCE }
-    fn requires(&self) -> Vec<Key> { vec![key::<ConnectRequest>()] }
+    fn ports(&self) -> Ports {
+        Ports::SOURCE
+    }
+    fn requires(&self) -> Vec<Key> {
+        vec![key::<ConnectRequest>()]
+    }
     fn call<'a>(&'a self, _i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
-            let addr = cx.get::<ConnectRequest>().expect("target in cx").addr.clone();
+            let addr = cx
+                .get::<ConnectRequest>()
+                .expect("target in cx")
+                .addr
+                .clone();
             let (a, mut b) = duplex(64);
             // the transport answers with the dialed address once a request
             // arrives, so stages can both write to and read from the dial
@@ -55,7 +65,9 @@ impl Layer for Dst {
 /// the protocol side and pipes the reply back into OUT as "{tag}|<input>|<reply>".
 struct Term(&'static str);
 impl Layer for Term {
-    fn ports(&self) -> Ports { Ports::TERMINAL }
+    fn ports(&self) -> Ports {
+        Ports::TERMINAL
+    }
     fn call<'a>(&'a self, i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let mut s = i.stream()?;
@@ -64,7 +76,13 @@ impl Layer for Term {
 
             let dialer = cx.get::<Dialer>().expect("dialer in cx").clone();
             let mut out = dialer
-                .dial_to(cx, ConnectRequest { addr: "example.com".into(), port: 443 })
+                .dial_to(
+                    cx,
+                    ConnectRequest {
+                        addr: "example.com".into(),
+                        port: 443,
+                    },
+                )
                 .await?;
             out.write_all(b"ping").await?;
             out.shutdown().await?;
@@ -85,7 +103,9 @@ impl Layer for Term {
 /// dials the layer below and pipes the reply back with its tag appended.
 struct Prox(&'static str);
 impl Layer for Prox {
-    fn ports(&self) -> Ports { Ports::TERMINAL }
+    fn ports(&self) -> Ports {
+        Ports::TERMINAL
+    }
     fn call<'a>(&'a self, i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let mut up = i.stream()?;
@@ -94,7 +114,13 @@ impl Layer for Prox {
 
             let dialer = cx.get::<Dialer>().expect("dialer in cx").clone();
             let mut down = dialer
-                .dial_to(cx, ConnectRequest { addr: "example.com".into(), port: 443 })
+                .dial_to(
+                    cx,
+                    ConnectRequest {
+                        addr: "example.com".into(),
+                        port: 443,
+                    },
+                )
                 .await?;
             down.write_all(&req).await?;
             down.shutdown().await?;
@@ -112,7 +138,9 @@ impl Layer for Prox {
 /// one-shot dialer to the next stage / terminal, prefixed with its tag.
 struct Relay(&'static str);
 impl Layer for Relay {
-    fn ports(&self) -> Ports { Ports::TERMINAL }
+    fn ports(&self) -> Ports {
+        Ports::TERMINAL
+    }
     fn call<'a>(&'a self, i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let mut up = i.stream()?;
@@ -121,7 +149,13 @@ impl Layer for Relay {
 
             let dialer = cx.get::<Dialer>().expect("dialer in cx").clone();
             let mut d = dialer
-                .dial_to(cx, ConnectRequest { addr: "stage-pipe".into(), port: 0 })
+                .dial_to(
+                    cx,
+                    ConnectRequest {
+                        addr: "stage-pipe".into(),
+                        port: 0,
+                    },
+                )
                 .await?;
             let msg = format!("{}{}", self.0, String::from_utf8_lossy(&buf)).into_bytes();
             d.write_all(&msg).await?;
@@ -132,7 +166,12 @@ impl Layer for Relay {
 
 struct NoInput;
 impl Layer for NoInput {
-    fn ports(&self) -> Ports { Ports { takes: Port::Nothing, gives: Port::Done } }
+    fn ports(&self) -> Ports {
+        Ports {
+            takes: Port::Nothing,
+            gives: Port::Done,
+        }
+    }
     fn call<'a>(&'a self, _i: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move { bail!("never called") })
     }
@@ -142,14 +181,20 @@ struct Secret;
 
 struct NeedyProto;
 impl Layer for NeedyProto {
-    fn ports(&self) -> Ports { Ports::TERMINAL }
-    fn requires(&self) -> Vec<Key> { vec![key::<Secret>()] }
+    fn ports(&self) -> Ports {
+        Ports::TERMINAL
+    }
+    fn requires(&self) -> Vec<Key> {
+        vec![key::<Secret>()]
+    }
     fn call<'a>(&'a self, i: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move { Ok(Output::Stream(i.stream()?)) })
     }
 }
 
-fn b<L: Layer>(l: L) -> Result<Box<dyn Layer>> { Ok(Box::new(l)) }
+fn b<L: Layer>(l: L) -> Result<Box<dyn Layer>> {
+    Ok(Box::new(l))
+}
 
 fn reg() -> Registry {
     let mut r = Registry::new();
@@ -350,7 +395,13 @@ async fn once_dialer_hands_out_its_stream_exactly_once() {
     let cx = Cx::default();
 
     let mut s = dial
-        .dial_to(&cx, ConnectRequest { addr: "x".into(), port: 0 })
+        .dial_to(
+            &cx,
+            ConnectRequest {
+                addr: "x".into(),
+                port: 0,
+            },
+        )
         .await
         .expect("first dial");
     s.write_all(b"ping").await.unwrap();
@@ -360,7 +411,13 @@ async fn once_dialer_hands_out_its_stream_exactly_once() {
     assert_eq!(buf, b"ping");
 
     let err = match dial
-        .dial_to(&cx, ConnectRequest { addr: "x".into(), port: 0 })
+        .dial_to(
+            &cx,
+            ConnectRequest {
+                addr: "x".into(),
+                port: 0,
+            },
+        )
         .await
     {
         Ok(_) => panic!("second dial must fail"),

@@ -14,7 +14,9 @@ impl Incoming for OneShot {
 }
 struct Src;
 impl Layer for Src {
-    fn ports(&self) -> Ports { Ports::LISTENER }
+    fn ports(&self) -> Ports {
+        Ports::LISTENER
+    }
     fn call<'a>(&'a self, _i: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let (a, mut b) = duplex(64);
@@ -27,7 +29,9 @@ impl Layer for Src {
 
 struct Wrap;
 impl Layer for Wrap {
-    fn ports(&self) -> Ports { Ports::WRAP }
+    fn ports(&self) -> Ports {
+        Ports::WRAP
+    }
     fn call<'a>(&'a self, i: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move { Ok(Output::Stream(i.stream()?)) })
     }
@@ -35,11 +39,19 @@ impl Layer for Wrap {
 
 struct Dst;
 impl Layer for Dst {
-    fn ports(&self) -> Ports { Ports::SOURCE }
-    fn requires(&self) -> Vec<Key> { vec![key::<ConnectRequest>()] }
+    fn ports(&self) -> Ports {
+        Ports::SOURCE
+    }
+    fn requires(&self) -> Vec<Key> {
+        vec![key::<ConnectRequest>()]
+    }
     fn call<'a>(&'a self, _i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
-            let addr = cx.get::<ConnectRequest>().expect("target in cx").addr.clone();
+            let addr = cx
+                .get::<ConnectRequest>()
+                .expect("target in cx")
+                .addr
+                .clone();
             let (a, mut b) = duplex(64);
             b.write_all(addr.as_bytes()).await?;
             b.shutdown().await?;
@@ -50,7 +62,9 @@ impl Layer for Dst {
 
 struct Term;
 impl Layer for Term {
-    fn ports(&self) -> Ports { Ports::TERMINAL }
+    fn ports(&self) -> Ports {
+        Ports::TERMINAL
+    }
     fn call<'a>(&'a self, i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let mut s = i.stream()?;
@@ -58,7 +72,15 @@ impl Layer for Term {
             s.read_to_end(&mut buf).await?;
 
             let dialer = cx.get::<Dialer>().expect("dialer in cx").clone();
-            let mut out = dialer.dial_to(cx, ConnectRequest { addr: "example.com".into(), port: 443 }).await?;
+            let mut out = dialer
+                .dial_to(
+                    cx,
+                    ConnectRequest {
+                        addr: "example.com".into(),
+                        port: 443,
+                    },
+                )
+                .await?;
             out.read_to_end(&mut buf).await?;
 
             OUT.lock().unwrap().extend_from_slice(&buf);
@@ -67,7 +89,9 @@ impl Layer for Term {
     }
 }
 
-fn b<L: Layer>(l: L) -> Result<Box<dyn Layer>> { Ok(Box::new(l)) }
+fn b<L: Layer>(l: L) -> Result<Box<dyn Layer>> {
+    Ok(Box::new(l))
+}
 
 fn reg() -> Registry {
     let mut r = Registry::new();
@@ -91,14 +115,21 @@ type = "dst"
 
 #[tokio::test]
 async fn runs_chain_and_dials() {
-    let engine = Engine::build(&AppConfig::parse(GOOD).unwrap(), &reg()).map_err(|e| e.to_string()).unwrap();
+    let engine = Engine::build(&AppConfig::parse(GOOD).unwrap(), &reg())
+        .map_err(|e| e.to_string())
+        .unwrap();
     engine.run().await.unwrap();
 
     for _ in 0..100 {
-        if OUT.lock().unwrap().as_slice() == b"helloexample.com" { return; }
+        if OUT.lock().unwrap().as_slice() == b"helloexample.com" {
+            return;
+        }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("unexpected output: {:?}", String::from_utf8_lossy(&OUT.lock().unwrap()));
+    panic!(
+        "unexpected output: {:?}",
+        String::from_utf8_lossy(&OUT.lock().unwrap())
+    );
 }
 
 fn build_err(toml: &str) -> String {
@@ -150,8 +181,12 @@ type = "src"
 
 struct Needy;
 impl Layer for Needy {
-    fn ports(&self) -> Ports { Ports::WRAP }
-    fn requires(&self) -> Vec<Key> { vec![key::<ConnectRequest>()] }
+    fn ports(&self) -> Ports {
+        Ports::WRAP
+    }
+    fn requires(&self) -> Vec<Key> {
+        vec![key::<ConnectRequest>()]
+    }
     fn call<'a>(&'a self, i: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move { Ok(Output::Stream(i.stream()?)) })
     }
@@ -166,7 +201,10 @@ fn missing_requires_is_rejected() {
         Ok(_) => panic!("expected a build error"),
         Err(e) => {
             let e = format!("{e:#}");
-            assert!(e.contains("requires") && e.contains("ConnectRequest"), "{e}");
+            assert!(
+                e.contains("requires") && e.contains("ConnectRequest"),
+                "{e}"
+            );
         }
     }
 }

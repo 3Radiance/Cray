@@ -1,6 +1,6 @@
+use crate::fingerprint::tls::compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor};
 use crate::profiles::get_tls;
 use crate::profiles::{Http2Config, TlsConfig};
-use crate::fingerprint::tls::compression::{BrotliCompressor, ZlibCompressor, ZstdCompressor};
 use anyhow::Result;
 use btls::ssl::{AlpnError, Ssl, SslConnector, SslContextBuilder, SslMethod, SslOptions};
 use btls_sys::SSL_add_application_settings;
