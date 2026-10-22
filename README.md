@@ -6,6 +6,8 @@
 
 English | [Русский](README.ru.md)
 
+[![CI](https://github.com/3Radiance/Cray/actions/workflows/ci.yml/badge.svg)](https://github.com/3Radiance/Cray/actions/workflows/ci.yml)
+
 A custom proxy engine written in Rust.
 
 Cray is built around a **modular, layered architecture**: transport and protocol are independent of each other. You can write your own protocol without worrying about how bytes travel across the network, or write your own transport without worrying about the protocol. Layers can be combined into any pipeline directly in the config:
@@ -245,4 +247,22 @@ down = [
   { type = "tls", sni = "down.example.com", tls_path = "./tls.toml" },
 ]
 ```
+
+---
+
+## Contributors
+
+- **Maintainer:** [Three_Radiance](https://github.com/3Radiance) — author and maintainer
+
+See the full list and how to contribute in [CONTRIBUTORS.md](CONTRIBUTORS.md). All contributions are licensed under [GPL-2.0](LICENSE).
+
+---
+
+## License
+
+[![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](LICENSE)
+
+Cray is licensed under the **GNU General Public License v2.0**.
+
+This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; version 2 of the License. It is distributed in the hope that it will be useful, but **without any warranty**; see the [full license text](LICENSE) for details.
 

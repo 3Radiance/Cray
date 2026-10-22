@@ -6,6 +6,8 @@
 
 [English](README.md) | Русский
 
+[![CI](https://github.com/3Radiance/Cray/actions/workflows/ci.yml/badge.svg)](https://github.com/3Radiance/Cray/actions/workflows/ci.yml)
+
 Кастомный прокси-движок на Rust.
 
 Cray строится на **модульной слоёвой архитектуре**: транспорт и протокол независимы друг от друга. Можно написать свой протокол, не думая о том, как байты доедут по сети, или написать свой транспорт, не думая о протоколе. Из слоёв собирается любой сценарий прямо в конфиге:
@@ -246,3 +248,21 @@ down = [
   { type = "tls", sni = "down.example.com", tls_path = "./tls.toml" },
 ]
 ```
+
+---
+
+## Контрибьюторы
+
+- **Мейнтейнер:** [Three_Radiance](https://github.com/3Radiance) — автор и мейнтейнер
+
+Полный список и как внести вклад — в [CONTRIBUTORS.md](CONTRIBUTORS.md). Все вклады распространяются на условиях лицензии [GPL-2.0](LICENSE).
+
+---
+
+## Лицензия
+
+[![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](LICENSE)
+
+Cray распространяется под лицензией **GNU General Public License v2.0**.
+
+Это свободное программное обеспечение: вы можете распространять его и/или изменять в соответствии с условиями GNU General Public License версии 2, опубликованной Free Software Foundation. Программа поставляется **без каких-либо гарантий**; подробности — в [полном тексте лицензии](LICENSE).
