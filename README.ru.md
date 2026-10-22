@@ -255,7 +255,7 @@ down = [
 
 - **Мейнтейнер:** [Three_Radiance](https://github.com/3Radiance) — автор и мейнтейнер
 
-Полный список и как внести вклад — в [CONTRIBUTORS.md](CONTRIBUTORS.md). Все вклады распространяются на условиях лицензии [GPL-2.0](LICENSE).
+Полный список — в [CONTRIBUTORS.md](CONTRIBUTORS.md), гайд по вкладу — в [CONTRIBUTING.md](CONTRIBUTING.md). Все вклады распространяются на условиях лицензии [GPL-2.0](LICENSE).
 
 ---
 

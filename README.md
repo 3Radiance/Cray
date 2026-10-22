@@ -254,7 +254,7 @@ down = [
 
 - **Maintainer:** [Three_Radiance](https://github.com/3Radiance) — author and maintainer
 
-See the full list and how to contribute in [CONTRIBUTORS.md](CONTRIBUTORS.md). All contributions are licensed under [GPL-2.0](LICENSE).
+See the full list in [CONTRIBUTORS.md](CONTRIBUTORS.md) and the contribution guide in [CONTRIBUTING.md](CONTRIBUTING.md). All contributions are licensed under [GPL-2.0](LICENSE).
 
 ---
 
