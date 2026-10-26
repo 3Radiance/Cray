@@ -13,6 +13,5 @@ settings_order = [
     "max_frame_size",
 ]
 
-http_headers = [
-    "X-Cray-Session-Id: id",
-]
+[http_headers]
+"x-session-id" = "id"

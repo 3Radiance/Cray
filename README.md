@@ -207,7 +207,8 @@ Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection d
 ## Status
 
 Working:
-- `tcp`, `unix`, `tls`, `http2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
+- `tcp`, `unix`, `tls`, `http2`, `xhttp2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
+- The `xhttp2` layer: split uplink/downlink over two HTTP/2 streams with configurable `id` header; see [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
 - The `auth` layer: per-frame HMAC-SHA256 authentication (v1 — tag only, no replay protection yet); see [docs/eng/auth.md](docs/eng/auth.md).
 - Building inbound and outbound layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).

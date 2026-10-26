@@ -206,8 +206,8 @@ RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 
 ## Статус
 
-Работает:
-- слои `tcp`, `unix`, `tls`, `http2`, `http-proxy` и обёртки `jitter`, `fragment`, `pad`;
+- слои `tcp`, `unix`, `tls`, `http2`, `xhttp2`, `http-proxy` и обёртки `jitter`, `fragment`, `pad`;
+- слой `xhttp2`: разделение туннеля на два HTTP/2-потока (Split HTTP/2) с настраиваемым заголовком `id`; см. [docs/ru/xhttp2.md](docs/ru/xhttp2.md).
 - слой `auth`: аутентификация каждого кадра HMAC (v1 — только тэг, защиты от
   повторов пока нет); см. [docs/ru/auth.md](docs/ru/auth.md).
 - сборка inbound- и outbound-цепочек из конфига, проверка порядка слоёв;

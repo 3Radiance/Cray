@@ -268,6 +268,7 @@ Rules that follow from this:
   connection.
 - The layer adds no headers of its own, not even `content-type` or
   `content-length`. Add what you want to appear in `http_headers`.
+- In the `xhttp2` layer, setting a header value to `"id"` in `[http_headers]` specifies which header carries the Session ID (see [xhttp2.md](xhttp2.md)).
 
 ## Streaming
 
