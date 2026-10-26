@@ -15,10 +15,10 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -170,7 +170,7 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                         continue;
                     };
 
-                    let mut guard = pair.lock().unwrap();
+                    let mut guard = pair.lock().await;
 
                     match guard.remove(sid) {
                         Some(Pair::Read(recv_stream)) => {
@@ -189,7 +189,10 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                                 XH2Tx(send_stream),
                             ));
 
-                            let _ = tx.try_send(stream);
+                            drop(guard);
+                            if tx.send(stream).await.is_err() {
+                                break;
+                            }
                         }
                         _ => {
                             guard.insert(sid.to_string(), Pair::Write(respond));
@@ -217,7 +220,7 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                         continue;
                     };
 
-                    let mut guard = pair.lock().unwrap();
+                    let mut guard = pair.lock().await;
 
                     match guard.remove(sid) {
                         Some(Pair::Write(mut get_respond)) => {
@@ -239,7 +242,10 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                                 XH2Tx(send_stream),
                             ));
 
-                            let _ = tx.try_send(stream);
+                            drop(guard);
+                            if tx.send(stream).await.is_err() {
+                                break;
+                            }
                         }
                         _ => {
                             guard.insert(sid.to_string(), Pair::Read(req.into_body()));

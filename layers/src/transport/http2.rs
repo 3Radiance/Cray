@@ -133,10 +133,8 @@ async fn server_handshake(plain: BoxedStream, h2: &H2) -> Result<BoxedIncoming> 
             let stream: BoxedStream =
                 Box::pin(ChunkStream::new(H2Rx::Body(req.into_body()), H2Tx(send)));
 
-            match tx.try_send(stream) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(_)) => {}
-                Err(mpsc::error::TrySendError::Closed(_)) => break,
+            if tx.send(stream).await.is_err() {
+                break;
             }
         }
     });
