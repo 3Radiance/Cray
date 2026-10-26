@@ -43,7 +43,7 @@ pub fn register(r: &mut Registry) {
     r.add("vless", protocol::vless::build);
     r.add("pad", wrappers::pad::build);
     r.add("auth", wrappers::auth::build);
-    // r.add("xhttp-h2", transport::xhttp_h2::build);
+    r.add("xhttp2", transport::xhttp2::build);
     // r.add("xhttp", transport::xhttp::build);
     // r.add("byedpi", wrappers::byedpi::build);
     // r.add("direct", protocol::direct::build);

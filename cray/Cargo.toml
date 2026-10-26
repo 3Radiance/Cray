@@ -3,6 +3,8 @@ name = "cray"
 version.workspace = true
 edition.workspace = true
 default-run = "cray"
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 cray-core.workspace = true

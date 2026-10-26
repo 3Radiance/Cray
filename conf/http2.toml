@@ -12,3 +12,7 @@ settings_order = [
     "initial_window_size",
     "max_frame_size",
 ]
+
+http_headers = [
+    "X-Cray-Session-Id: id",
+]

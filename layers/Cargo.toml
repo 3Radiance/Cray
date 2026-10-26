@@ -2,6 +2,8 @@
 name = "cray-layers"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 cray-core.workspace = true

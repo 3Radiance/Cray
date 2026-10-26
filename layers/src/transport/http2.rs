@@ -30,7 +30,7 @@ pub struct H2 {
     authority: String,
     path: String,
     profile: Option<String>,
-    is_server: bool,
+    side: Side,
 }
 
 async fn client_handshake(wire: BoxedStream, h2: &H2) -> Result<BoxedStream> {
@@ -146,9 +146,9 @@ async fn server_handshake(plain: BoxedStream, h2: &H2) -> Result<BoxedIncoming> 
 
 impl Layer for H2 {
     fn ports(&self) -> Ports {
-        match self.is_server {
-            false => Ports::WRAP,
-            true => Ports::ACCEPT,
+        match self.side {
+            Side::Outbound => Ports::WRAP,
+            Side::Inbound => Ports::ACCEPT,
         }
     }
 
@@ -159,10 +159,9 @@ impl Layer for H2 {
     fn call<'a>(&'a self, input: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let stream = input.stream()?;
-            if self.is_server {
-                Ok(Output::Streams(server_handshake(stream, self).await?))
-            } else {
-                Ok(Output::Stream(client_handshake(stream, self).await?))
+            match self.side {
+                Side::Inbound => Ok(Output::Streams(server_handshake(stream, self).await?)),
+                Side::Outbound => Ok(Output::Stream(client_handshake(stream, self).await?)),
             }
         })
     }
@@ -173,10 +172,11 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
     let (Some(path), Some(host), Some(method)) = (cfg.path, cfg.host, cfg.method) else {
         bail!("http2 requires 'path', 'host' and 'method'");
     };
-    let is_server = bcx.side == Side::Inbound;
-    if !is_server && cfg.config.is_none() {
+
+    if bcx.side == Side::Outbound && cfg.config.is_none() {
         bail!("http2 outbound requires 'config' (profile path)");
     }
+
     let method: http::Method = method
         .parse()
         .map_err(|e| anyhow!("http2: invalid method '{method}': {e}"))?;
@@ -185,7 +185,7 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         authority: host,
         path,
         profile: cfg.config,
-        is_server,
+        side: bcx.side,
     }))
 }
 
