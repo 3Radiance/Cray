@@ -297,6 +297,16 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
     if cfg.config.is_none() {
         bail!("XHTTP2 requires 'config' (profile path)");
     }
+    let h2 = get_http2(&cfg.config.as_ref().unwrap())?;
+    let mut check = None;
+    for (_, v) in h2.apply_http_headers(&HeaderMap::new())? {
+        if v == "id" {
+            check = Some(())
+        }
+    }
+    if check.is_none() {
+        bail!("XHTTP2 needs a header with the value id")
+    }
 
     let method: http::Method = method
         .parse()
