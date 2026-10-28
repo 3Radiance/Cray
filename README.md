@@ -52,6 +52,8 @@ There is no `client`/`server` flag anymore: behavior follows position. Inbound l
 | `vless` | Protocol: wraps the stream into VLESS framing — a UUID-authenticated header (TCP command), the target address, then the payload. | Protocol: unwraps VLESS framing, verifies the UUID, dials the target and pipes the two ends together. |
 | `pad` | Size equalization, a pure shaper (`stages`, no keys; see [docs/eng/shaping.md](docs/eng/shaping.md)). | Same. |
 | `auth` | Frame authentication: an HMAC-SHA256 tag over every record, one shared key, no handshake; see [docs/eng/auth.md](docs/eng/auth.md). | Same (identical key on both ends). |
+| `xhttp2` | Splits a tunnel across paired upload (`POST`/`PUT`) and download (`GET`) requests, exposing one **virtual stream**. | Pairs upload and download requests by the configured session-ID header, regardless of arrival order. |
+
 
 Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes the framing to DPI. `pad` does not authenticate; put the `auth` layer under it (`tcp → tls → auth → pad → protocol`; see [docs/eng/auth.md](docs/eng/auth.md)).
 
@@ -208,7 +210,8 @@ Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection d
 
 Working:
 - `tcp`, `unix`, `tls`, `http2`, `xhttp2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
-- The `xhttp2` layer: split uplink/downlink over two HTTP/2 streams with configurable `id` header; see [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
+- The `xhttp2` layer: splits upload and download across two HTTP/2 streams. It pairs upload (`POST`/`PUT`) and download (`GET`) requests using a configurable session-ID header, regardless of which request arrives first. Bodies are streamed without buffering the full payload; see [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
+
 - The `auth` layer: per-frame HMAC-SHA256 authentication (v1 — tag only, no replay protection yet); see [docs/eng/auth.md](docs/eng/auth.md).
 - Building inbound and outbound layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).
