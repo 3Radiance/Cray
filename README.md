@@ -173,7 +173,7 @@ On the server, the `tls` layer takes `alpn` directly; `tls_path` is ignored inbo
 | Module | Purpose |
 |---|---|
 | `core/` | The engine: layer contract (`Layer`), `Registry`, chain building and validation, the `drive` runner. Knows no layer names. |
-| `layers/` | All layers, grouped by kind: `transport/` (`tls`, `http2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrapers/` (`jitter`, `fragment`), plus `tcp`, `unix`, `fingerprint/` builders and `profiles/` loading. A new layer is one file plus one `register` line. |
+| `layers/` | All layers, grouped by kind: `transport/` (`tls`, `http2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrappers/` (`jitter`, `fragment`), plus `tcp`, `unix`, `fingerprint/` builders and `profiles/` loading. A new layer is one file plus one `register` line. |
 | `cray/` | The binary: parses args, registers layers, builds the engine, runs. |
 
 ---
@@ -211,7 +211,6 @@ Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `VLESS`, `JITTER`, `FRAG`. Per-connection d
 Working:
 - `tcp`, `unix`, `tls`, `http2`, `xhttp2`, and `http-proxy` layers, plus the `jitter`, `fragment` and `pad` shaping wrappers;
 - The `xhttp2` layer: splits upload and download across two HTTP/2 streams. It pairs upload (`POST`/`PUT`) and download (`GET`) requests using a configurable session-ID header, regardless of which request arrives first. Bodies are streamed without buffering the full payload; see [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
-
 - The `auth` layer: per-frame HMAC-SHA256 authentication (v1 — tag only, no replay protection yet); see [docs/eng/auth.md](docs/eng/auth.md).
 - Building inbound and outbound layer chains from config and validating layer order;
 - The `vless` protocol (TCP command, UUID authentication).

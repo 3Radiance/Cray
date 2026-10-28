@@ -173,7 +173,7 @@ permute_extensions = true
 | Модуль | Роль |
 |---|---|
 | `core/` | Движок: контракт слоёв (`Layer`), `Registry`, сборка и проверка цепочек, прогон `drive`. Имён слоёв не знает. |
-| `layers/` | Все слои по видам: `transport/` (`tls`, `http2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrapers/` (`jitter`, `fragment`), плюс `tcp`, `unix`, билдеры `fingerprint/` и загрузка `profiles/`. Новый слой — один файл + одна строка `register`. |
+| `layers/` | Все слои по видам: `transport/` (`tls`, `http2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrappers/` (`jitter`, `fragment`), плюс `tcp`, `unix`, билдеры `fingerprint/` и загрузка `profiles/`. Новый слой — один файл + одна строка `register`. |
 | `cray/` | Бинарь: разбор аргументов, регистрация слоёв, сборка движка, запуск. |
 
 ---
@@ -210,7 +210,6 @@ RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 
 - слои `tcp`, `unix`, `tls`, `http2`, `xhttp2`, `http-proxy` и обёртки `jitter`, `fragment`, `pad`;
 - Слой `xhttp2`: разделяет туннель на два HTTP/2-потока и связывает upload (`POST`/`PUT`) с download (`GET`) по настраиваемому заголовку Session ID независимо от порядка прихода запросов. Данные передаются потоком без буферизации всего сообщения; см. [docs/ru/xhttp2.md](docs/ru/xhttp2.md).
-
 - слой `auth`: аутентификация каждого кадра HMAC (v1 — только тэг, защиты от
   повторов пока нет); см. [docs/ru/auth.md](docs/ru/auth.md).
 - сборка inbound- и outbound-цепочек из конфига, проверка порядка слоёв;
