@@ -59,6 +59,7 @@ async fn test_xhttp2_build_validation() {
     // Valid
     assert!(build_xhttp2("example.com", "/test", "POST", profile_str, Side::Inbound).is_ok());
     assert!(build_xhttp2("example.com", "/test", "POST", profile_str, Side::Outbound).is_ok());
+    assert!(build_xhttp2("example.com", "/test", "GET", profile_str, Side::Inbound).is_err());
 
     // Missing fields
     let mut reg = Registry::new();
@@ -187,4 +188,172 @@ async fn test_xhttp2_roundtrip_data() {
         .await
         .expect("client read");
     assert_eq!(buf2, msg_from_server);
+}
+
+#[tokio::test]
+async fn test_xhttp2_large_buffers_throughput() {
+    use std::time::{Duration, Instant};
+    use tokio::io::split;
+
+    const ROUNDS: usize = 8;
+    const PAYLOAD_SIZE: usize = 4 * 1024 * 1024;
+    const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30);
+
+    for round in 0..ROUNDS {
+        let method = if fastrand::bool() { "POST" } else { "PUT" };
+
+        let profile = make_h2_profile(&format!("stress-{round}"));
+        let profile_str = profile.to_str().unwrap();
+
+        let server_layer = build_xhttp2(
+            "127.0.0.1",
+            "/split-http",
+            method,
+            profile_str,
+            Side::Inbound,
+        )
+        .expect("server build");
+
+        let client_layer = build_xhttp2(
+            "127.0.0.1",
+            "/split-http",
+            method,
+            profile_str,
+            Side::Outbound,
+        )
+        .expect("client build");
+
+        let (client_wire, server_wire) = duplex(1 << 20);
+
+        let server_handle = tokio::spawn(async move {
+            let mut cx = Cx::default();
+
+            let output = server_layer
+                .call(Input::Stream(Box::pin(server_wire)), &mut cx)
+                .await
+                .expect("server handshake");
+
+            match output {
+                Output::Streams(incoming) => incoming,
+                _ => panic!("expected Output::Streams"),
+            }
+        });
+
+        let client_handle = tokio::spawn(async move {
+            let mut cx = Cx::default();
+
+            let output = client_layer
+                .call(Input::Stream(Box::pin(client_wire)), &mut cx)
+                .await
+                .expect("client handshake");
+
+            match output {
+                Output::Stream(stream) => stream,
+                _ => panic!("expected Output::Stream"),
+            }
+        });
+
+        let (mut incoming, client_stream) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::try_join!(
+                async {
+                    server_handle
+                        .await
+                        .map_err(|e| anyhow::anyhow!("server task: {e}"))
+                },
+                async {
+                    client_handle
+                        .await
+                        .map_err(|e| anyhow::anyhow!("client task: {e}"))
+                }
+            )
+        })
+        .await
+        .expect("handshake timed out")
+        .expect("handshake failed");
+
+        let server_stream = tokio::time::timeout(Duration::from_secs(10), incoming.accept())
+            .await
+            .expect("accept timed out")
+            .expect("accept failed");
+
+        let client_payload: Vec<u8> = (0..PAYLOAD_SIZE)
+            .map(|i| ((i * 31 + round * 17) % 251) as u8)
+            .collect();
+
+        let server_payload: Vec<u8> = (0..PAYLOAD_SIZE)
+            .map(|i| ((i * 47 + round * 29 + 113) % 251) as u8)
+            .collect();
+
+        let (mut client_reader, mut client_writer) = split(client_stream);
+        let (mut server_reader, mut server_writer) = split(server_stream);
+
+        // Test client -> server
+        let mut received_by_server = vec![0u8; PAYLOAD_SIZE];
+        let started = Instant::now();
+
+        let (write_result, read_result) = tokio::time::timeout(TRANSFER_TIMEOUT, async {
+            tokio::join!(
+                client_writer.write_all(&client_payload),
+                server_reader.read_exact(&mut received_by_server)
+            )
+        })
+        .await
+        .expect("client -> server transfer timed out");
+
+        write_result.expect("client write failed");
+        read_result.expect("server read failed");
+
+        let client_to_server_elapsed = started.elapsed();
+
+        assert_eq!(
+            received_by_server, client_payload,
+            "client -> server data mismatch in round {round}"
+        );
+
+        let client_to_server_mib_s =
+            PAYLOAD_SIZE as f64 / (1024.0 * 1024.0) / client_to_server_elapsed.as_secs_f64();
+
+        // Test server -> client
+        let mut received_by_client = vec![0u8; PAYLOAD_SIZE];
+        let started = Instant::now();
+
+        let (write_result, read_result) = tokio::time::timeout(TRANSFER_TIMEOUT, async {
+            tokio::join!(
+                server_writer.write_all(&server_payload),
+                client_reader.read_exact(&mut received_by_client)
+            )
+        })
+        .await
+        .expect("server -> client transfer timed out");
+
+        write_result.expect("server write failed");
+        read_result.expect("client read failed");
+
+        let server_to_client_elapsed = started.elapsed();
+
+        assert_eq!(
+            received_by_client, server_payload,
+            "server -> client data mismatch in round {round}"
+        );
+
+        let server_to_client_mib_s =
+            PAYLOAD_SIZE as f64 / (1024.0 * 1024.0) / server_to_client_elapsed.as_secs_f64();
+
+        println!(
+            "[XHTTP2 stress] round={round}, method={method}, size={} MiB",
+            PAYLOAD_SIZE / (1024 * 1024)
+        );
+
+        println!(
+            "  client -> server: {:.2} ms, {:.2} MiB/s",
+            client_to_server_elapsed.as_secs_f64() * 1000.0,
+            client_to_server_mib_s,
+        );
+
+        println!(
+            "  server -> client: {:.2} ms, {:.2} MiB/s",
+            server_to_client_elapsed.as_secs_f64() * 1000.0,
+            server_to_client_mib_s,
+        );
+    }
 }

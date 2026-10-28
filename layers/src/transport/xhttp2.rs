@@ -39,8 +39,8 @@ pub struct XH2 {
 }
 
 pub enum Pair {
-    Write(SendResponse<Bytes>),
-    Read(RecvStream),
+    Write((RecvStream, SendResponse<Bytes>)),
+    Read((RecvStream, SendResponse<Bytes>)),
 }
 
 async fn client_handshake(wire: BoxedStream, h2: &XH2) -> Result<BoxedStream> {
@@ -76,7 +76,6 @@ async fn client_handshake(wire: BoxedStream, h2: &XH2) -> Result<BoxedStream> {
             post_req = post_req.header(k, v);
         }
     }
-    let (_post_resp, post_send) = sr.send_request(post_req.body(())?, false)?;
 
     let mut get_req = Request::builder()
         .method("GET")
@@ -88,7 +87,7 @@ async fn client_handshake(wire: BoxedStream, h2: &XH2) -> Result<BoxedStream> {
             get_req = get_req.header(k, v);
         }
     }
-
+    let (_post_resp, post_send) = sr.send_request(post_req.body(())?, false)?;
     let (get_resp, _send_stream) = sr.send_request(get_req.body(())?, true)?;
 
     drop(sr);
@@ -173,8 +172,13 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                     let mut guard = pair.lock().await;
 
                     match guard.remove(sid) {
-                        Some(Pair::Read(recv_stream)) => {
+                        Some(Pair::Read(post_res)) => {
                             let r = Response::builder()
+                                .status(200)
+                                .header("content-type", "application/octet-stream")
+                                .body(())
+                                .unwrap();
+                            let r2 = Response::builder()
                                 .status(200)
                                 .header("content-type", "application/octet-stream")
                                 .body(())
@@ -183,11 +187,11 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                             let Ok(send_stream) = respond.send_response(r, false) else {
                                 continue;
                             };
+                            let (req, mut post_resp) = post_res;
+                            let _ = post_resp.send_response(r2, true);
 
-                            let stream: BoxedStream = Box::pin(ChunkStream::new(
-                                XH2Rx::Body(recv_stream),
-                                XH2Tx(send_stream),
-                            ));
+                            let stream: BoxedStream =
+                                Box::pin(ChunkStream::new(XH2Rx::Body(req), XH2Tx(send_stream)));
 
                             drop(guard);
                             if tx.send(stream).await.is_err() {
@@ -195,7 +199,7 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                             }
                         }
                         _ => {
-                            guard.insert(sid.to_string(), Pair::Write(respond));
+                            guard.insert(sid.to_string(), Pair::Write((req.into_body(), respond)));
                             continue;
                         }
                     }
@@ -223,19 +227,26 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                     let mut guard = pair.lock().await;
 
                     match guard.remove(sid) {
-                        Some(Pair::Write(mut get_respond)) => {
+                        Some(Pair::Write(get_respond)) => {
                             let r = Response::builder()
                                 .status(200)
                                 .header("content-type", "application/octet-stream")
                                 .body(())
                                 .unwrap();
 
-                            let Ok(send_stream) = get_respond.send_response(r, false) else {
+                            let (_, mut getrespond) = get_respond;
+
+                            let Ok(send_stream) = getrespond.send_response(r, false) else {
                                 continue;
                             };
 
-                            let post_ok = Response::builder().status(200).body(()).unwrap();
-                            let _ = respond.send_response(post_ok, true);
+                            let get_ok = Response::builder()
+                                .status(200)
+                                .header("content-type", "application/octet-stream")
+                                .body(())
+                                .unwrap();
+
+                            let _ = respond.send_response(get_ok, true);
 
                             let stream: BoxedStream = Box::pin(ChunkStream::new(
                                 XH2Rx::Body(req.into_body()),
@@ -248,7 +259,7 @@ async fn server_handshake(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming>
                             }
                         }
                         _ => {
-                            guard.insert(sid.to_string(), Pair::Read(req.into_body()));
+                            guard.insert(sid.to_string(), Pair::Read((req.into_body(), respond)));
                             continue;
                         }
                     }
@@ -311,6 +322,10 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
     let method: http::Method = method
         .parse()
         .map_err(|e| anyhow!("XHTTP2: invalid method '{method}': {e}"))?;
+
+    if method == Method::GET {
+        bail!("XHTTP2 method must not be GET");
+    }
     Ok(Box::new(XH2 {
         method,
         authority: host,
