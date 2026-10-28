@@ -1,0 +1,74 @@
+cipher_suites = """
+TLS_AES_128_GCM_SHA256 # TLS1.3
+TLS_CHACHA20_POLY1305_SHA256 # TLS1.3
+TLS_AES_256_GCM_SHA384 # TLS1.3
+ECDHE-ECDSA-AES128-GCM-SHA256 # TLS1.2
+ECDHE-RSA-AES128-GCM-SHA256 # TLS1.2
+ECDHE-ECDSA-CHACHA20-POLY1305 # TLS1.2
+ECDHE-RSA-CHACHA20-POLY1305 # TLS1.2
+ECDHE-ECDSA-AES256-GCM-SHA384 # TLS1.2
+ECDHE-RSA-AES256-GCM-SHA384 # TLS1.2
+ECDHE-ECDSA-AES256-CBC-SHA # TLS1.2
+ECDHE-RSA-AES128-CBC-SHA # TLS1.2
+ECDHE-RSA-AES256-CBC-SHA # TLS1.2
+"""
+
+alpn = ["h2"]
+
+curves = """
+X25519MLKEM768
+X25519
+P-256
+P-384
+P-521
+ffdhe2048
+ffdhe3072
+"""
+
+signature_algorithms = """
+ecdsa_secp256r1_sha256
+ecdsa_secp384r1_sha384
+ecdsa_secp521r1_sha512
+rsa_pss_rsae_sha256
+rsa_pss_rsae_sha384
+rsa_pss_rsae_sha512
+rsa_pkcs1_sha256
+rsa_pkcs1_sha384
+rsa_pkcs1_sha512
+ecdsa_sha1
+rsa_pkcs1_sha1
+"""
+
+extensions_order = """
+server_name
+extended_master_secret
+renegotiation_info
+supported_groups
+ec_point_formats
+alpn
+status_request
+delegated_credentials
+certificate_timestamp
+key_share
+supported_versions
+signature_algorithms
+psk_key_exchange_modes
+record_size_limit
+cert_compression
+ech
+pre_shared_key
+"""
+
+cert_compression = ["zlib","brotli","zstd"]
+
+status_request = true
+signed_certificate_timestamp = true
+
+delegated_credentials = """
+ecdsa_secp256r1_sha256
+ecdsa_secp384r1_sha384
+ecdsa_secp521r1_sha512
+ecdsa_sha1
+"""
+
+record_size_limit = 4001

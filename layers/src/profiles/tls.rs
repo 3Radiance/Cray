@@ -1,14 +1,18 @@
 use anyhow::Result;
 use btls::ssl::ExtensionType;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)]
 pub struct TlsConfig {
+    #[serde(deserialize_with = "deserialize_lines", default)]
     pub cipher_suites: Option<Vec<String>>,
     pub alpn: Option<Vec<String>>,
+    #[serde(deserialize_with = "deserialize_lines", default)]
     pub curves: Option<Vec<String>>,
+    #[serde(deserialize_with = "deserialize_lines", default)]
     pub signature_algorithms: Option<Vec<String>>,
+    #[serde(deserialize_with = "deserialize_lines", default)]
     pub extensions_order: Option<Vec<String>>,
     pub cert_compression: Option<Vec<String>>,
     pub permute_extensions: Option<bool>,
@@ -19,6 +23,7 @@ pub struct TlsConfig {
     pub grease_enabled: Option<bool>,
     pub enable_ech: Option<bool>,
     pub enable_ech_grease: Option<bool>,
+    #[serde(deserialize_with = "deserialize_lines", default)]
     pub delegated_credentials: Option<Vec<String>>,
     pub record_size_limit: Option<u16>,
     pub doh: Option<Vec<String>>,
@@ -96,5 +101,23 @@ impl TlsConfig {
                     .collect()
             })
             .transpose()
+    }
+}
+
+fn deserialize_lines<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    match s {
+        Some(val) => {
+            let list = val
+                .lines()
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .collect();
+            Ok(Some(list))
+        }
+        None => Ok(None),
     }
 }
