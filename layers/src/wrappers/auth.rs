@@ -137,20 +137,18 @@ impl<S: AsyncRead + Unpin> AsyncRead for AuthStream<S> {
                         )));
                     }
                     this.frame.clear();
+                    this.frame.extend_from_slice(&this.hdr[32..34]);
                     this.rstate = ReadState::Payload { left: len };
                 }
                 ReadState::Payload { left } => {
                     if left == 0 {
-                        let mut msg = Vec::with_capacity(2 + this.frame.len());
-                        msg.extend_from_slice(&this.hdr[32..34]);
-                        msg.extend_from_slice(&this.frame);
-                        if let Err(_) = hmac::verify(&this.key, &msg, &this.hdr[0..32]) {
+                        if hmac::verify(&this.key, &this.frame, &this.hdr[0..32]).is_err() {
                             return Poll::Ready(Err(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 "auth: bad tag",
                             )));
                         }
-                        this.rstate = ReadState::Out { off: 0 };
+                        this.rstate = ReadState::Out { off: 2 };
                         continue;
                     }
                     let take = left.min(SCRATCH);
