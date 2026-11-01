@@ -28,7 +28,9 @@ The `xhttp2` layer **does not hardcode the header name** used for the Session ID
   - `"x-session-id" = "id"`
   - `"x-correlation-id" = "id"`
   - `"sec-ch-ua-session" = "id"`
-- **⚠️ Requirement:** Both client and server **must** specify a header with value `"id"` in their profile. If no header mapped to `"id"` is present, the handshake fails with: `XH2 requires an id header`.
+- **⚠️ Requirement:** Both client and server **must** specify a header with value `"id"` for the uplink leg (the layer's method) and for the downlink leg (`GET`). The header is looked up in the corresponding profile
+  section (`[uplink]`/`[downlink]`) and falls back to the common top-level
+  `headers_order`/`[http_headers]` set. If a leg has no header mapped to `"id"`, layer configuration fails with: `XHTTP2 needs a header with the value id (.../uplink|downlink)`.
 
 ---
 
@@ -58,10 +60,95 @@ config = "conf/http2.toml"
 
 | Field | Type | Description |
 |---|---|---|
-| `host` | string | Required. Expected host / `:authority`. On server, requests targeting other hosts receive 404. |
-| `path` | string | Required. Request `:path`. Requests with other paths receive 404. |
+| `host` | string | Required. Expected host / `:authority`. On server, requests targeting other hosts are rejected with the profile's `reject_status` (404 by default). |
+| `path` | string | Required. Request `:path`. Requests with other paths receive `reject_status`. |
 | `method` | string | Required. HTTP method for uplink (`POST`, `PUT`, etc.). Downlink leg always uses `GET`. |
 | `config` | string | Required. Path to the HTTP/2 profile (needed by both sides to identify the Session ID header). |
+
+---
+
+## Profile: uplink and downlink, responses and rejections
+
+Request headers can be defined separately for the uplink leg (`[uplink]` — any
+method except `GET`) and for the downlink leg (`[downlink]` — always `GET`). The
+old flat format still works: top-level `headers_order` and `[http_headers]`
+serve as a common fallback for both legs. Inside each leg the same
+`headers_order`/`http_headers` apply, and partially defined legs take the
+missing part from the top level (`[uplink]` also has the `[post]`/`[put]`
+aliases, `[downlink]` — `[get]`):
+
+```toml
+[uplink]
+headers_order = ["x-session-id", "user-agent", "content-type"]
+
+[uplink.http_headers]
+"x-session-id" = "id"
+"user-agent" = "Mozilla/5.0"
+"content-type" = "application/grpc"
+
+[downlink]
+headers_order = ["x-session-id", "user-agent"]
+
+[downlink.http_headers]
+"x-session-id" = "id"
+"user-agent" = "Mozilla/5.0"
+```
+
+### Server responses
+
+- `[uplink.response]` / `[downlink.response]` — headers of the successful (200)
+  responses for the corresponding request. Same format: `headers_order` +
+  `http_headers`.
+- If a leg has no `response`, the top-level `[response]` table is used as the
+  common fallback; if that is absent too, the response contains only
+  `content-type: application/octet-stream`.
+- In response headers (like in request headers) a value of `"id"` is replaced
+  with the Session ID.
+- If `content-type` is not set in the response headers, the layer adds
+  `application/octet-stream`.
+
+### Rejections
+
+Requests that do not match the path, host or method, or that carry a missing or
+malformed Session ID, are rejected:
+
+- `reject_status` — the rejection code, any value 100–999 (`404` by default); 
+  an invalid code fails profile loading.
+- `[reject]` — reject headers in the same format; without the table the
+  rejection stays bare (status only).
+- `body_path` inside `[reject]` — path to a file (usually HTML) served entirely
+  as the rejection body. The file is read once when the profile is loaded; a
+  missing file is a configuration error. With a body set and no explicit
+  `content-type`, `text/html` is used.
+
+```toml
+reject_status = 505
+
+[response]
+headers_order = ["server"]
+
+[response.http_headers]
+server = "nginx"
+
+[uplink.response]
+headers_order = ["content-type", "data"]
+
+[uplink.response.http_headers]
+content-type = "application/grpc"
+data = "id"               # replaced with the Session ID
+
+[reject]
+headers_order = ["server", "content-type"]
+body_path = "conf/reject.html"
+
+[reject.http_headers]
+server = "nginx"
+content-type = "text/html; charset=utf-8"
+```
+
+`reject_status`, `[reject]` and `[response]` also work in the plain `http2`
+layer (a single common set, no uplink/downlink split; see
+[http2.md](http2.md)).
 
 ---
 

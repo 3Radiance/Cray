@@ -28,7 +28,7 @@
   - `"x-session-id" = "id"`
   - `"x-correlation-id" = "id"`
   - `"sec-ch-ua-session" = "id"`
-- **⚠️ Требование:** и клиенту, и серверу в своём файле профиля **обязательно** нужно иметь заголовок со значением `"id"`. Если ни один заголовок со значением `"id"` не найден, хендшейк вернёт ошибку `XH2 requires an id header`.
+- **⚠️ Требование:** и клиенту, и серверу в своём файле профиля **обязательно** нужно иметь заголовок со значением `"id"` как для upload-ноги (метод слоя), так и для download-ноги (`GET`). Заголовок ищется в секции соответствующей ноги (`[uplink]`/`[downlink]`), а при её отсутствии — в общем наборе `headers_order`/`[http_headers]`. Если в какой-то ноге заголовок со значением `"id"` не найден, конфигурация слоя не соберётся с ошибкой `XHTTP2 needs a header with the value id (.../uplink|downlink)`.
 
 ---
 
@@ -58,10 +58,75 @@ config = "conf/http2.toml"
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `host` | строка | Обязательно. Хост / `:authority` запроса. На сервере запросы с другим хостом отклоняются с 404. |
-| `path` | строка | Обязательно. Путь (`:path`), на который отправляются и ожидаются запросы. Все остальные пути получают 404. |
+| `host` | строка | Обязательно. Хост / `:authority` запроса. На сервере запросы с другим хостом отклоняются с кодом `reject_status` (по умолчанию 404). |
+| `path` | строка | Обязательно. Путь (`:path`), на который отправляются и ожидаются запросы. Все остальные пути получают `reject_status`. |
 | `method` | строка | Обязательно. Метод для upload-ноги (`POST`, `PUT` и т.д.). Download-нога всегда использует `GET`. |
 | `config` | строка | Обязательно. Путь к файлу профиля HTTP/2 (нужен и outbound, и inbound, чтобы знать заголовок с `id`). |
+
+---
+
+## Профиль: uplink и downlink, ответы и отказы
+
+Заголовки запросов можно задавать отдельно для upload-ноги (`[uplink]` — любой метод, кроме `GET`) и отдельно для download-ноги (`[downlink]` — всегда `GET`). Старый плоский формат продолжает работать: верхнеуровневые `headers_order` и `[http_headers]` служат общим фолбэком для обеих ног. Внутри каждой ноги — те же `headers_order` и `http_headers`, при частичном задании недостающее берётся из верхнего уровня (у `[uplink]` есть алиасы `[post]`/`[put]`, у `[downlink]` — `[get]`):
+
+```toml
+[uplink]
+headers_order = ["x-session-id", "user-agent", "content-type"]
+
+[uplink.http_headers]
+"x-session-id" = "id"
+"user-agent" = "Mozilla/5.0"
+"content-type" = "application/grpc"
+
+[downlink]
+headers_order = ["x-session-id", "user-agent"]
+
+[downlink.http_headers]
+"x-session-id" = "id"
+"user-agent" = "Mozilla/5.0"
+```
+
+### Ответы сервера
+
+- `[uplink.response]` / `[downlink.response]` — заголовки успешных (200) ответов на соответствующий запрос. Формат тот же: `headers_order` + `http_headers`.
+- Если `response` у ноги не задан, используется верхнеуровневая таблица `[response]` (общий фолбэк); если нет и её, ответ содержит только `content-type: application/octet-stream`.
+- В заголовках ответа (как и в запросных) значение `"id"` подменяется на Session ID.
+- Если в ответных заголовках не указан `content-type`, слой ставит `application/octet-stream`.
+
+### Отказы
+
+Запросы, не совпавшие по пути, хосту, методу или с отсутствующим/битым Session ID, отклоняются:
+
+- `reject_status` — код отказа, любое значение 100–999 (по умолчанию `404`); некорректный код ломает загрузку профиля.
+- `[reject]` — заголовки отказа в том же формате; при отсутствии таблицы отказ остаётся голым (только статус).
+- `body_path` внутри `[reject]` — путь к файлу (обычно HTML), целиком отдающемуся телом отказа. Файл читается один раз при загрузке профиля, отсутствие файла — ошибка конфигурации. Если `content-type` в `[reject.http_headers]` не задан, при наличии тела подставляется `text/html`.
+
+```toml
+reject_status = 505
+
+[response]
+headers_order = ["server"]
+
+[response.http_headers]
+server = "nginx"
+
+[uplink.response]
+headers_order = ["content-type", "data"]
+
+[uplink.response.http_headers]
+content-type = "application/grpc"
+data = "id"               # подменяется на Session ID
+
+[reject]
+headers_order = ["server", "content-type"]
+body_path = "conf/reject.html"
+
+[reject.http_headers]
+server = "nginx"
+content-type = "text/html; charset=utf-8"
+```
+
+`reject_status`, `[reject]` и `[response]` работают и в слое `http2` (без uplink/downlink — одним общим набором, см. [http2.md](http2.md)).
 
 ---
 

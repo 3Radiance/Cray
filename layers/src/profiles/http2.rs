@@ -20,6 +20,35 @@ pub struct Http2Config {
     pub pseudo_headers_order: Option<Vec<String>>,
     pub headers_order: Option<Vec<String>>,
     pub http_headers: Option<HashMap<String, Option<String>>>,
+
+    #[serde(default)]
+    pub response: Option<HeadersCfg>,
+
+    #[serde(default)]
+    pub reject: Option<RejectCfg>,
+
+    #[serde(default)]
+    pub reject_status: Option<u16>,
+
+    #[serde(skip)]
+    pub reject_body: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
+pub struct HeadersCfg {
+    pub headers_order: Option<Vec<String>>,
+    pub http_headers: Option<HashMap<String, Option<String>>>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
+pub struct RejectCfg {
+    pub headers_order: Option<Vec<String>>,
+    pub http_headers: Option<HashMap<String, Option<String>>>,
+
+    #[serde(default)]
+    pub body_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -51,7 +80,17 @@ pub struct Settings {
 impl Http2Config {
     pub fn load(path: &str) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
-        let config: Http2Config = toml::from_str(&contents)?;
+        let mut config: Http2Config = toml::from_str(&contents)?;
+        if let Some(status) = config.reject_status {
+            http::StatusCode::from_u16(status)
+                .map_err(|e| anyhow::anyhow!("[H2] invalid reject_status {status}: {e}"))?;
+        }
+        if let Some(body_path) = config.reject.as_ref().and_then(|r| r.body_path.as_ref()) {
+            config.reject_body = Some(
+                std::fs::read(body_path)
+                    .map_err(|e| anyhow::anyhow!("[H2] cannot read reject body '{body_path}': {e}"))?,
+            );
+        }
         Ok(config)
     }
 
@@ -124,77 +163,29 @@ impl Http2Config {
         &self,
         incoming: &http::HeaderMap,
     ) -> anyhow::Result<Vec<(http::header::HeaderName, http::header::HeaderValue)>> {
-        use http::header::{HeaderName, HeaderValue};
-        use std::collections::HashSet;
+        build_header_list(
+            self.headers_order.as_ref(),
+            self.http_headers.as_ref(),
+            Some(incoming),
+        )
+    }
 
-        let mut result = Vec::new();
-        let mut processed = HashSet::new();
-
-        if let Some(order) = &self.headers_order {
-            for configured_name in order {
-                let name_lower = configured_name.to_ascii_lowercase();
-
-                let name = HeaderName::from_bytes(name_lower.as_bytes()).map_err(|err| {
-                    anyhow::anyhow!("[H2] invalid header name '{configured_name}': {err}")
-                })?;
-
-                processed.insert(name.clone());
-
-                let configured_val = self
-                    .http_headers
-                    .as_ref()
-                    .and_then(|map| map.get(&name_lower));
-
-                match configured_val {
-                    Some(Some(value)) => {
-                        let value = HeaderValue::from_str(value).map_err(|err| {
-                            anyhow::anyhow!(
-                                "[H2] invalid value for header '{configured_name}': {err}"
-                            )
-                        })?;
-                        result.push((name, value));
-                    }
-                    Some(None) => {}
-                    None => {
-                        for value in incoming.get_all(&name).iter() {
-                            result.push((name.clone(), value.clone()));
-                        }
-                    }
-                }
-            }
+    pub fn apply_response_headers(
+        &self,
+    ) -> anyhow::Result<Vec<(http::header::HeaderName, http::header::HeaderValue)>> {
+        match self.response.as_ref() {
+            Some(h) => build_header_list(h.headers_order.as_ref(), h.http_headers.as_ref(), None),
+            None => Ok(Vec::new()),
         }
+    }
 
-        if let Some(map) = &self.http_headers {
-            for (configured_name, configured_value) in map {
-                let name_lower = configured_name.to_ascii_lowercase();
-
-                let name = HeaderName::from_bytes(name_lower.as_bytes()).map_err(|err| {
-                    anyhow::anyhow!("[H2] invalid header name '{configured_name}': {err}")
-                })?;
-
-                if processed.contains(&name) {
-                    continue;
-                }
-
-                processed.insert(name.clone());
-
-                if let Some(value) = configured_value {
-                    let value = HeaderValue::from_str(value).map_err(|err| {
-                        anyhow::anyhow!("[H2] invalid value for header '{configured_name}': {err}")
-                    })?;
-                    result.push((name, value));
-                }
-            }
+    pub fn apply_reject_headers(
+        &self,
+    ) -> anyhow::Result<Vec<(http::header::HeaderName, http::header::HeaderValue)>> {
+        match self.reject.as_ref() {
+            Some(h) => build_header_list(h.headers_order.as_ref(), h.http_headers.as_ref(), None),
+            None => Ok(Vec::new()),
         }
-
-        for (name, value) in incoming.iter() {
-            if processed.contains(name) {
-                continue;
-            }
-            result.push((name.clone(), value.clone()));
-        }
-
-        Ok(result)
     }
 
     pub fn encode_alps_payload(&self) -> Vec<u8> {
@@ -245,4 +236,81 @@ impl Http2Config {
         }
         bytes
     }
+}
+
+fn build_header_list(
+    order: Option<&Vec<String>>,
+    map: Option<&HashMap<String, Option<String>>>,
+    incoming: Option<&http::HeaderMap>,
+) -> anyhow::Result<Vec<(http::header::HeaderName, http::header::HeaderValue)>> {
+    use http::header::{HeaderName, HeaderValue};
+    use std::collections::HashSet;
+
+    let mut result = Vec::new();
+    let mut processed = HashSet::new();
+
+    if let Some(order) = order {
+        for configured_name in order {
+            let name_lower = configured_name.to_ascii_lowercase();
+
+            let name = HeaderName::from_bytes(name_lower.as_bytes()).map_err(|err| {
+                anyhow::anyhow!("[H2] invalid header name '{configured_name}': {err}")
+            })?;
+
+            processed.insert(name.clone());
+
+            let configured_val = map.as_ref().and_then(|m| m.get(&name_lower));
+
+            match configured_val {
+                Some(Some(value)) => {
+                    let value = HeaderValue::from_str(value).map_err(|err| {
+                        anyhow::anyhow!("[H2] invalid value for header '{configured_name}': {err}")
+                    })?;
+                    result.push((name, value));
+                }
+                Some(None) => {}
+                None => {
+                    if let Some(incoming) = incoming {
+                        for value in incoming.get_all(&name).iter() {
+                            result.push((name.clone(), value.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(map) = map {
+        for (configured_name, configured_value) in map {
+            let name_lower = configured_name.to_ascii_lowercase();
+
+            let name = HeaderName::from_bytes(name_lower.as_bytes()).map_err(|err| {
+                anyhow::anyhow!("[H2] invalid header name '{configured_name}': {err}")
+            })?;
+
+            if processed.contains(&name) {
+                continue;
+            }
+
+            processed.insert(name.clone());
+
+            if let Some(value) = configured_value {
+                let value = HeaderValue::from_str(value).map_err(|err| {
+                    anyhow::anyhow!("[H2] invalid value for header '{configured_name}': {err}")
+                })?;
+                result.push((name, value));
+            }
+        }
+    }
+
+    if let Some(incoming) = incoming {
+        for (name, value) in incoming.iter() {
+            if processed.contains(name) {
+                continue;
+            }
+            result.push((name.clone(), value.clone()));
+        }
+    }
+
+    Ok(result)
 }

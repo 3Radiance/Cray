@@ -1,4 +1,6 @@
+use bytes::Bytes;
 use cray_core::*;
+use http::Request;
 use std::io::Write;
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
@@ -20,7 +22,17 @@ enable_push = false
 initial_window_size = 65535
 max_frame_size = 16384
 
-[http_headers]
+[uplink]
+headers_order = ["x-session-id", "user-agent"]
+
+[uplink.http_headers]
+"x-session-id" = "id"
+"user-agent" = "cray-test"
+
+[downlink]
+headers_order = ["x-session-id", "user-agent"]
+
+[downlink.http_headers]
 "x-session-id" = "id"
 "user-agent" = "cray-test"
 "#;
@@ -356,4 +368,272 @@ async fn test_xhttp2_large_buffers_throughput() {
             server_to_client_mib_s,
         );
     }
+}
+
+fn write_profile(tag: &str, content: &str) -> PathBuf {
+    use std::io::Write as _;
+
+    let dir = std::env::temp_dir().join(format!(
+        "cray-xhttp2-test-{tag}-{}-{}",
+        std::process::id(),
+        fastrand::u64(..)
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let profile_path = dir.join("profile.toml");
+    let mut file = std::fs::File::create(&profile_path).expect("create profile file");
+    file.write_all(content.as_bytes()).expect("write profile");
+    profile_path
+}
+
+fn make_direction_profile(tag: &str) -> PathBuf {
+    write_profile(
+        tag,
+        r#"
+[settings]
+header_table_size = 4096
+enable_push = false
+initial_window_size = 65535
+max_frame_size = 16384
+
+[uplink]
+headers_order = ["x-up-id", "user-agent"]
+
+[uplink.http_headers]
+"x-up-id" = "id"
+"user-agent" = "cray-up"
+
+[downlink]
+headers_order = ["x-down-id", "user-agent"]
+
+[downlink.http_headers]
+"x-down-id" = "id"
+"user-agent" = "cray-down"
+
+[uplink.response]
+headers_order = ["server", "data"]
+
+[uplink.response.http_headers]
+server = "nginx-up"
+data = "id"
+
+[downlink.response]
+headers_order = ["server", "data"]
+
+[downlink.response.http_headers]
+server = "nginx-down"
+data = "id"
+"#,
+    )
+}
+
+fn make_reject_profile(tag: &str, body_path: &str) -> PathBuf {
+    write_profile(
+        tag,
+        &format!(
+            r#"
+reject_status = 418
+
+[settings]
+header_table_size = 4096
+enable_push = false
+initial_window_size = 65535
+max_frame_size = 16384
+
+[http_headers]
+"x-session-id" = "id"
+"user-agent" = "cray-test"
+
+[reject]
+headers_order = ["server", "content-type"]
+body_path = "{body_path}"
+
+[reject.http_headers]
+server = "cray-test"
+content-type = "text/html; charset=utf-8"
+"#
+        ),
+    )
+}
+
+async fn manual_h2_client(wire: tokio::io::DuplexStream) -> http2::client::SendRequest<Bytes> {
+    let (send_req, conn) = http2::client::handshake(wire)
+        .await
+        .expect("client handshake");
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    send_req.ready().await.expect("client ready")
+}
+
+async fn read_body(mut body: http2::RecvStream) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let done = std::future::poll_fn(|cx| {
+            loop {
+                match body.poll_data(cx) {
+                    std::task::Poll::Pending => return std::task::Poll::Pending,
+                    std::task::Poll::Ready(None) => return std::task::Poll::Ready(true),
+                    std::task::Poll::Ready(Some(Err(_))) => {
+                        return std::task::Poll::Ready(true)
+                    }
+                    std::task::Poll::Ready(Some(Ok(chunk))) => {
+                        let _ = body.flow_control().release_capacity(chunk.len());
+                        out.extend_from_slice(&chunk);
+                        return std::task::Poll::Ready(false);
+                    }
+                }
+            }
+        })
+        .await;
+        if done {
+            break;
+        }
+    }
+    out
+}
+
+fn spawn_layer_server(layer: Box<dyn Layer>, wire: tokio::io::DuplexStream) {
+    tokio::spawn(async move {
+        let mut cx = Cx::default();
+        let output = layer
+            .call(Input::Stream(Box::pin(wire)), &mut cx)
+            .await
+            .expect("server handshake");
+        match output {
+            Output::Streams(mut incoming) => {
+                // Keep the acceptor alive so the server keeps answering probes.
+                loop {
+                    if incoming.accept().await.is_none() {
+                        break;
+                    }
+                }
+            }
+            _ => panic!("expected Output::Streams"),
+        }
+    });
+}
+
+fn assert_header(resp: &http::Response<http2::RecvStream>, name: &str, expected: &str) {
+    let got = resp
+        .headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_else(|| panic!("missing header '{name}'"));
+    assert_eq!(got, expected, "unexpected value of header '{name}'");
+}
+
+#[tokio::test]
+async fn test_xhttp2_legacy_flat_profile_still_works() {
+    let profile = write_profile(
+        "legacy-flat",
+        r#"
+[settings]
+header_table_size = 4096
+enable_push = false
+
+[http_headers]
+"x-session-id" = "id"
+"user-agent" = "cray-test"
+"#,
+    );
+    let profile_str = profile.to_str().unwrap();
+
+    assert!(build_xhttp2("example.com", "/test", "POST", profile_str, Side::Inbound).is_ok());
+    assert!(build_xhttp2("example.com", "/test", "POST", profile_str, Side::Outbound).is_ok());
+}
+
+#[tokio::test]
+async fn test_xhttp2_reject_custom_page() {
+    let html = "<html><body>cray says no</body></html>";
+    let body_path = std::env::temp_dir().join(format!(
+        "cray-xhttp2-reject-{}-{}.html",
+        std::process::id(),
+        fastrand::u64(..)
+    ));
+    std::fs::write(&body_path, html).expect("write reject page");
+
+    let profile = make_reject_profile("reject-page", body_path.to_str().unwrap());
+    let profile_str = profile.to_str().unwrap().to_string();
+
+    let server_layer = build_xhttp2(
+        "127.0.0.1",
+        "/split-http",
+        "POST",
+        &profile_str,
+        Side::Inbound,
+    )
+    .expect("server build");
+
+    let (client_wire, server_wire) = duplex(1 << 20);
+    let _server = spawn_layer_server(server_layer, server_wire);
+
+    let mut sr = manual_h2_client(client_wire).await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("https://127.0.0.1/nope")
+        .body(())
+        .unwrap();
+    let (resp, _stream) = sr.send_request(req, true).expect("send reject probe");
+    let resp = resp.await.expect("reject response");
+
+    assert_eq!(resp.status().as_u16(), 418);
+    assert_header(&resp, "server", "cray-test");
+    assert_header(&resp, "content-type", "text/html; charset=utf-8");
+    assert_eq!(read_body(resp.into_body()).await, html.as_bytes());
+}
+
+#[tokio::test]
+async fn test_xhttp2_per_direction_headers_and_responses() {
+    let profile = make_direction_profile("per-dir");
+    let profile_str = profile.to_str().unwrap().to_string();
+
+    let server_layer = build_xhttp2(
+        "127.0.0.1",
+        "/split-http",
+        "POST",
+        &profile_str,
+        Side::Inbound,
+    )
+    .expect("server build");
+
+    let (client_wire, server_wire) = duplex(1 << 20);
+    let _server = spawn_layer_server(server_layer, server_wire);
+
+    let mut sr = manual_h2_client(client_wire).await;
+    let sid = "a".repeat(32);
+    let uri = "https://127.0.0.1/split-http";
+
+    // Uplink: POST with the [uplink] id header, parked until GET arrives.
+    let post_req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("x-up-id", sid.as_str())
+        .header("user-agent", "cray-up")
+        .body(())
+        .unwrap();
+    let (post_resp, mut post_stream) = sr.send_request(post_req, false).expect("send uplink");
+    post_stream
+        .send_data(Bytes::from_static(b"uplink payload"), true)
+        .expect("uplink body");
+
+    // Downlink: GET with the [downlink] id header, pairs with the parked POST.
+    let get_req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("x-down-id", sid.as_str())
+        .header("user-agent", "cray-down")
+        .body(())
+        .unwrap();
+    let (get_resp, _get_stream) = sr.send_request(get_req, true).expect("send downlink");
+
+    let get_resp = get_resp.await.expect("downlink response");
+    assert_eq!(get_resp.status().as_u16(), 200);
+    assert_header(&get_resp, "server", "nginx-down");
+    assert_header(&get_resp, "data", &sid);
+
+    let post_resp = post_resp.await.expect("uplink response");
+    assert_eq!(post_resp.status().as_u16(), 200);
+    assert_header(&post_resp, "server", "nginx-up");
+    assert_header(&post_resp, "data", &sid);
 }

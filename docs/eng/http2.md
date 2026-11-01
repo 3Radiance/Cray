@@ -31,9 +31,8 @@ Inbound (`inbound.layers`):
 ```
 tls stream ──▶ http2 layer ──▶ one virtual stream per accepted request ──▶ protocol
                  1. HTTP/2 inbound handshake (5 second timeout by default, `timeout` field)
-                 2. every request whose method, path and host match is answered 200
-                    (content-type: application/octet-stream),
-                    anything else is answered 404
+                 2. every request whose method, path and host match is answered 200,
+                    anything else is answered with `reject_status` (404 by default)
                  3. each accepted request becomes an independent byte stream
 ```
 
@@ -44,8 +43,9 @@ written go out as DATA frames in the request body (outbound) or the response bod
 (`WINDOW_UPDATE`) is handled inside the layer. Closing the write side sends an
 empty DATA frame with `END_STREAM`.
 
-The profile shapes the outbound side only. Inbound ignores it and uses fixed
-settings (128 concurrent streams, 1 MiB stream window, 4 MiB connection
+Both sides use the profile: outbound shapes the wire fingerprint, inbound only
+uses the response sections — `reject_status` and the `[response]`/`[reject]`
+tables. Technical server settings are fixed (128 concurrent streams, 1 MiB stream window, 4 MiB connection
 window).
 
 ## Layer parameters
@@ -64,7 +64,8 @@ config = "./http2.toml"
 | `path` | required: request `:path` | required: requests must match, others get 404 |
 | `method` | required: `POST` or `PUT` | required: requests must match, others get 404 |
 | `host` | required: request `:authority` | required: requests must match, others get 404 |
-| `config` | required: path to the HTTP/2 profile | not used |
+| `host` | required: request `:authority` | required: requests must match, others get `reject_status` |
+| `config` | required: path to the HTTP/2 profile | optional: for `reject_status`, `[response]` and `[reject]` |
 | `timeout` | seconds (`timeout = 5`) or preset name (`timeout = "h2"`); default 5 | same; default 5 |
 | scheme | always `https` | n/a |
 
@@ -270,6 +271,58 @@ Rules that follow from this:
   `content-length`. Add what you want to appear in `http_headers`.
 - In the `xhttp2` layer, setting a header value to `"id"` in `[http_headers]` specifies which header carries the Session ID (see [xhttp2.md](xhttp2.md)).
 
+### `[response]`: successful response headers
+
+Inbound answers every accepted request with status 200, and the `[response]`
+table defines the headers of that answer in the same format as the request
+headers:
+
+```toml
+[response]
+headers_order = ["content-type", "server"]
+
+[response.http_headers]
+content-type = "application/grpc"
+server = "nginx"
+```
+
+- Keys must be lowercase; names listed in `headers_order` keep that order.
+- If `content-type` is not set, the layer adds `application/octet-stream`
+  itself. Set it explicitly to serve a different `content-type`.
+- When the table is absent, the response contains only
+  `application/octet-stream`, as before.
+
+### `[reject]` and `reject_status`: rejections
+
+Requests whose `method`, `path` or `host` do not match are rejected. By default
+this is a bare `404` without headers or body. The status code, headers and body
+are configurable:
+
+```toml
+reject_status = 505             # any code 100–999; 404 by default
+
+[reject]
+headers_order = ["server", "content-type"]
+body_path = "conf/reject.html"  # file served verbatim as the reject body
+
+[reject.http_headers]
+server = "nginx"
+content-type = "text/html; charset=utf-8"
+```
+
+- `reject_status` is an arbitrary response code used for rejections. Values
+  outside 100–999 fail profile loading.
+- `[reject]` holds the reject headers in the usual format (`headers_order` +
+  `[reject.http_headers]`, lowercase keys). Without the table the rejection
+  stays bare (status only).
+- `body_path` is a path to a file served entirely as the rejection body
+  (usually an HTML page). The file is read once when the profile is loaded; a
+  missing file is a configuration error. With a body set and no explicit
+  `content-type`, the layer adds `text/html`. Write the scalar `body_path` key
+  before the `[reject.http_headers]` sub-table.
+- The reject body is sent as a single DATA frame with `END_STREAM`; the layer
+  does not add `content-length`.
+
 ## Streaming
 
 Bodies stream in both directions and are never buffered as a whole. One tunnel
@@ -303,7 +356,7 @@ frame and the ALPS payload is itself a fingerprint signal.
 - `http_headers` keys must be lowercase, and every header must be listed in
   `headers_order` to get a defined position.
 - Inbound accepts only requests whose method, path and host match the layer;
-  everything else gets 404. An outbound and an inbound with different `path`,
+  everything else gets `reject_status` (404 by default). An outbound and an inbound with different `path`,
   `method` or `host` values never connect.
 - Inbound compares `host` with the host part of `:authority`, without the
   port. Write `host = "example.com"`, not `"example.com:443"`. Behind a reverse

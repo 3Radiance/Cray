@@ -1,8 +1,10 @@
 mod http2;
 mod tls;
+mod xhttp2;
 
 pub use http2::Http2Config;
 pub use tls::TlsConfig;
+pub use xhttp2::Http2Config as Xhttp2Config;
 
 use crate::fingerprint::http2::builder::http2_builder;
 use crate::fingerprint::tls::builder::{set_alpn_select_callback, tls_builder};
@@ -41,6 +43,11 @@ fn http2_builder_cache() -> &'static DashMap<ProfileKey, Arc<::http2::client::Bu
     CACHE.get_or_init(DashMap::new)
 }
 
+fn xhttp2_cache() -> &'static DashMap<ProfileKey, Arc<Xhttp2Config>> {
+    static CACHE: OnceLock<DashMap<ProfileKey, Arc<Xhttp2Config>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
 pub fn get_tls(profile_path: &str) -> Result<Arc<TlsConfig>> {
     let cache = tls_cache();
     if let Some(c) = cache.get(profile_path) {
@@ -57,6 +64,16 @@ pub fn get_http2(profile_path: &str) -> Result<Arc<Http2Config>> {
         return Ok(Arc::clone(&c));
     }
     let built = Arc::new(Http2Config::load(profile_path)?);
+    cache.insert(profile_path.to_string(), Arc::clone(&built));
+    Ok(built)
+}
+
+pub fn get_xhttp2(profile_path: &str) -> Result<Arc<Xhttp2Config>> {
+    let cache = xhttp2_cache();
+    if let Some(c) = cache.get(profile_path) {
+        return Ok(Arc::clone(&c));
+    }
+    let built = Arc::new(Xhttp2Config::load(profile_path)?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)
 }
