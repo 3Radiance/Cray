@@ -2,12 +2,15 @@ use crate::fingerprint::tls::compression::{BrotliCompressor, ZlibCompressor, Zst
 use crate::profiles::get_tls;
 use crate::profiles::{Http2Config, TlsConfig};
 use anyhow::Result;
-use btls::ssl::{AlpnError, Ssl, SslConnector, SslContextBuilder, SslMethod, SslOptions};
+use btls::error::ErrorStack;
+use btls::ssl::{
+    AlpnError, Ssl, SslConnector, SslContext, SslContextBuilder, SslMethod, SslOptions,
+};
 use btls_sys::SSL_add_application_settings;
 use foreign_types_shared::ForeignType;
 use std::sync::Arc;
 
-pub async fn tls_builder(profile_path: &str) -> Result<SslConnector> {
+pub fn tls_builder(profile_path: &str) -> Result<SslConnector> {
     let tls = get_tls(profile_path)?;
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     let mut store_builder = btls::x509::store::X509StoreBuilder::new()?;
@@ -68,7 +71,34 @@ pub fn set_alpn_select_callback(builder: &mut SslContextBuilder, alpn_bytes: Vec
     });
 }
 
+fn probe(
+    what: &str,
+    items: Option<&[String]>,
+    mut f: impl FnMut(&mut SslContextBuilder, &str) -> Result<(), ErrorStack>,
+) -> Result<()> {
+    for item in items.unwrap_or_default() {
+        let mut scratch = SslContext::builder(SslMethod::tls())?;
+        scratch.set_preserve_tls13_cipher_list(true);
+        f(&mut scratch, item)
+            .map_err(|e| anyhow::anyhow!("[TLS] {what}: invalid value '{item}': {e}"))?;
+    }
+    Ok(())
+}
+
 pub fn set_cipher_suites(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {
+    const TLS13: [&str; 3] = [
+        "TLS_AES_128_GCM_SHA256",
+        "TLS_AES_256_GCM_SHA384",
+        "TLS_CHACHA20_POLY1305_SHA256",
+    ];
+    let tls12: Vec<String> = tls
+        .cipher_suites
+        .iter()
+        .flatten()
+        .filter(|c| !TLS13.contains(&c.as_str()))
+        .cloned()
+        .collect();
+    probe("cipher_suites", Some(&tls12), |b, i| b.set_cipher_list(i))?;
     builder.set_preserve_tls13_cipher_list(true);
 
     let ciphers = tls
@@ -79,7 +109,7 @@ pub fn set_cipher_suites(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Re
 
     builder
         .set_cipher_list(&ciphers)
-        .map_err(|e| anyhow::anyhow!("[TLS] Failed to set cipher list: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("[TLS] cipher_suites: no usable cipher in the list: {e}"))?;
 
     Ok(())
 }
@@ -92,6 +122,7 @@ pub fn set_alpn_protos(builder: &mut SslContextBuilder, alpn_bytes: Vec<u8>) -> 
 }
 
 pub fn set_curves_list(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {
+    probe("curves", tls.curves.as_deref(), |b, i| b.set_curves_list(i))?;
     let curve_list = tls.curves.as_ref().map(|v| v.join(":")).unwrap_or_default();
     builder
         .set_curves_list(&curve_list)
@@ -100,6 +131,11 @@ pub fn set_curves_list(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Resu
 }
 
 pub fn set_sigalgs_list(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {
+    probe(
+        "signature_algorithms",
+        tls.signature_algorithms.as_deref(),
+        |b, i| b.set_sigalgs_list(i),
+    )?;
     let sigalgs = tls
         .signature_algorithms
         .as_ref()
@@ -217,6 +253,11 @@ pub fn set_alps(ssl: &mut Ssl, http2: Arc<Http2Config>, tls: Arc<TlsConfig>) {
 }
 
 pub fn set_delegated_credentials(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {
+    probe(
+        "delegated_credentials",
+        tls.delegated_credentials.as_deref(),
+        |b, i| b.set_delegated_credentials(i),
+    )?;
     if let Some(algs) = &tls.delegated_credentials {
         let list = algs.join(":");
         builder

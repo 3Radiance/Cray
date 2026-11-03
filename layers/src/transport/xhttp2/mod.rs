@@ -1,5 +1,5 @@
 use super::chunk::{ChunkRx, ChunkTx};
-use crate::profiles::get_xhttp2;
+use crate::profiles::{get_or_build_xhttp2_builder, get_xhttp2};
 use anyhow::{Result, anyhow, bail};
 use bytes::Bytes;
 use cray_core::{
@@ -131,6 +131,12 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         .any(|(_, v)| v == "id")
     {
         bail!("XHTTP2 needs a header with the value id (GET / downlink)");
+    }
+
+    if bcx.side == Side::Outbound {
+        let profile = cfg.config.as_deref().expect("checked above");
+        get_or_build_xhttp2_builder(profile)
+            .map_err(|e| anyhow!("xhttp2 profile '{profile}': {e:#}"))?;
     }
 
     let mode = match cfg.mode.as_deref() {

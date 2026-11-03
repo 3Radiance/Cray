@@ -6,6 +6,7 @@ pub fn http2_builder(path: &str) -> Result<http2::client::Builder> {
     let mut builder = http2::client::Builder::new();
 
     let config = get_http2(path)?;
+    config.validate()?;
 
     let mut pseudo_builder = PseudoOrder::builder();
     let pseudo_headers_order = config.parse_pseudo_headers()?;

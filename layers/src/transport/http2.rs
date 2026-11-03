@@ -238,8 +238,12 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         bail!("http2 requires 'path', 'host' and 'method'");
     };
 
-    if bcx.side == Side::Outbound && cfg.config.is_none() {
-        bail!("http2 outbound requires 'config' (profile path)");
+    if bcx.side == Side::Outbound {
+        let Some(profile) = cfg.config.as_deref() else {
+            bail!("http2 outbound requires 'config' (profile path)");
+        };
+        get_or_build_http2(profile)
+            .map_err(|e| anyhow!("http2 profile '{profile}': {e:#}"))?;
     }
 
     let method: http::Method = method

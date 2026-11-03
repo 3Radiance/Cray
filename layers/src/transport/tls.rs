@@ -103,7 +103,7 @@ where
         tls_path
     );
 
-    let connector = get_or_build_tls_connector(tls_path).await?;
+    let connector = get_or_build_tls_connector(tls_path)?;
     let config = get_tls(tls_path)?;
     let mut ssl = connector.configure()?.into_ssl(sni)?;
     if config.alps == Some(true) {
@@ -182,6 +182,8 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
             }
             let tls_path = cfg.tls_path.as_deref().expect("checked above");
             let tls = get_tls(tls_path)?;
+            get_or_build_tls_connector(tls_path)
+                .with_context(|| format!("tls profile '{tls_path}'"))?;
             if tls.alps == Some(true) {
                 match cfg.http2_path.as_deref() {
                     None => bail!(

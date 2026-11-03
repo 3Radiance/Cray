@@ -6,6 +6,9 @@ use cray_core::{AppConfig, Engine, Registry};
 struct Args {
     #[arg(long, short)]
     config: String,
+
+    #[arg(long)]
+    check: bool,
 }
 
 #[tokio::main]
@@ -21,7 +24,29 @@ async fn main() -> Result<()> {
     let mut reg = Registry::new();
     cray_layers::register(&mut reg);
 
-    let cfg = AppConfig::load(&args.config)?;
-    let engine = Engine::build(&cfg, &reg).context("build chain")?;
-    engine.run().await
+    let built = AppConfig::load(&args.config).and_then(|cfg| {
+        Engine::build(&cfg, &reg)
+            .context("build chain")
+            .map(|engine| (cfg, engine))
+    });
+
+    if args.check {
+        return match built {
+            Ok((cfg, _)) => {
+                println!(
+                    "{}: ok ({} inbound layers, {} outbound layers)",
+                    args.config,
+                    cfg.inbound.layers.len(),
+                    cfg.outbound.layers.len()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("{}: {e:#}", args.config);
+                std::process::exit(1);
+            }
+        };
+    }
+
+    built?.1.run().await
 }

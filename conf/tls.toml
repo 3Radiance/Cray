@@ -11,10 +11,8 @@ cipher_suites = [
 alpn = ["h2"]
 curves = ["X25519", "P-256", "P-384"]
 signature_algorithms = [
-    "rsa_pkcs1_md5_sha1",
     "rsa_pkcs1_sha1",
     "rsa_pkcs1_sha256",
-    "rsa_pkcs1_sha256_legacy",
     "rsa_pkcs1_sha384",
     "rsa_pkcs1_sha512",
     "ecdsa_secp256r1_sha256"

@@ -1,6 +1,6 @@
 use super::{Mode, XH2, XH2Rx, XH2Tx};
 use crate::crypto::id::generate_session_id;
-use crate::profiles::{get_or_build_http2, get_xhttp2};
+use crate::profiles::{get_or_build_xhttp2_builder, get_xhttp2};
 use crate::transport::chunk::ChunkStream;
 use anyhow::{Result, anyhow, bail};
 use bytes::Bytes;
@@ -25,7 +25,7 @@ async fn stream_up(wire: BoxedStream, h2: &XH2) -> Result<BoxedStream> {
         "Starting XHTTP/2 client handshake for profile {}",
         profile
     );
-    let builder = get_or_build_http2(profile)?;
+    let builder = get_or_build_xhttp2_builder(profile)?;
     let http2 = get_xhttp2(profile)?;
     let sid = generate_session_id();
 

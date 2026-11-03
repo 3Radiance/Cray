@@ -9,6 +9,7 @@ pub use xhttp2::Http2Config as Xhttp2Config;
 use crate::fingerprint::http2::builder::http2_builder;
 use crate::fingerprint::tls::builder::{set_alpn_select_callback, tls_builder};
 use crate::fingerprint::tls::cert::CertPair;
+use crate::fingerprint::xhttp2::builder::xhttp2_builder;
 use anyhow::Result;
 use btls::ssl::{SslAcceptor, SslConnector, SslMethod};
 use cray_core::log_tag;
@@ -39,6 +40,11 @@ fn tls_connector_cache() -> &'static DashMap<ProfileKey, Arc<SslConnector>> {
 }
 
 fn http2_builder_cache() -> &'static DashMap<ProfileKey, Arc<::http2::client::Builder>> {
+    static CACHE: OnceLock<DashMap<ProfileKey, Arc<::http2::client::Builder>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn xhttp2_builder_cache() -> &'static DashMap<ProfileKey, Arc<::http2::client::Builder>> {
     static CACHE: OnceLock<DashMap<ProfileKey, Arc<::http2::client::Builder>>> = OnceLock::new();
     CACHE.get_or_init(DashMap::new)
 }
@@ -78,7 +84,7 @@ pub fn get_xhttp2(profile_path: &str) -> Result<Arc<Xhttp2Config>> {
     Ok(built)
 }
 
-pub async fn get_or_build_tls_connector(profile_path: &str) -> Result<Arc<SslConnector>> {
+pub fn get_or_build_tls_connector(profile_path: &str) -> Result<Arc<SslConnector>> {
     let cache = tls_connector_cache();
     if let Some(c) = cache.get(profile_path) {
         log_tag!(
@@ -95,7 +101,7 @@ pub async fn get_or_build_tls_connector(profile_path: &str) -> Result<Arc<SslCon
         "Building TLS connector for profile {}",
         profile_path
     );
-    let built = Arc::new(tls_builder(profile_path).await?);
+    let built = Arc::new(tls_builder(profile_path)?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)
 }
@@ -118,6 +124,28 @@ pub fn get_or_build_http2(profile_path: &str) -> Result<Arc<::http2::client::Bui
         profile_path
     );
     let built = Arc::new(http2_builder(profile_path)?);
+    cache.insert(profile_path.to_string(), Arc::clone(&built));
+    Ok(built)
+}
+
+pub fn get_or_build_xhttp2_builder(profile_path: &str) -> Result<Arc<::http2::client::Builder>> {
+    let cache = xhttp2_builder_cache();
+    if let Some(c) = cache.get(profile_path) {
+        log_tag!(
+            debug,
+            "XH2",
+            "Using cached XHTTP/2 builder for profile {}",
+            profile_path
+        );
+        return Ok(Arc::clone(&c));
+    }
+    log_tag!(
+        debug,
+        "XH2",
+        "Building XHTTP/2 builder for profile {}",
+        profile_path
+    );
+    let built = Arc::new(xhttp2_builder(profile_path)?);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)
 }

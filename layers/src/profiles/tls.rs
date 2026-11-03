@@ -1,8 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use btls::ssl::ExtensionType;
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub struct TlsConfig {
     #[serde(deserialize_with = "deserialize_lines", default)]
@@ -31,8 +32,10 @@ pub struct TlsConfig {
 
 impl TlsConfig {
     pub fn load(path: &str) -> Result<Self> {
-        let contents = std::fs::read_to_string(path)?;
-        let config: TlsConfig = toml::from_str(&contents)?;
+        let contents = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read tls profile '{path}'"))?;
+        let config: TlsConfig = toml::from_str(&contents)
+            .with_context(|| format!("invalid tls profile '{path}'"))?;
         Ok(config)
     }
 
@@ -68,7 +71,9 @@ impl TlsConfig {
                         "signature_algorithms" => Ok(ExtensionType::SIGNATURE_ALGORITHMS),
                         "alpn" => Ok(ExtensionType::APPLICATION_LAYER_PROTOCOL_NEGOTIATION),
                         "padding" => Ok(ExtensionType::PADDING),
-                        "signed_certificate_timestamp" => Ok(ExtensionType::CERTIFICATE_TIMESTAMP),
+                        "signed_certificate_timestamp" | "certificate_timestamp" => {
+                            Ok(ExtensionType::CERTIFICATE_TIMESTAMP)
+                        },
                         "extended_master_secret" => Ok(ExtensionType::EXTENDED_MASTER_SECRET),
                         "session_ticket" => Ok(ExtensionType::SESSION_TICKET),
                         "supported_versions" => Ok(ExtensionType::SUPPORTED_VERSIONS),
@@ -108,16 +113,24 @@ fn deserialize_lines<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::
 where
     D: Deserializer<'de>,
 {
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    match s {
-        Some(val) => {
-            let list = val
-                .lines()
-                .map(|line| line.trim().to_string())
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .collect();
-            Ok(Some(list))
-        }
-        None => Ok(None),
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Lines {
+        One(String),
+        Many(Vec<String>),
     }
+
+    let Some(v) = Option::<Lines>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let raw: Vec<String> = match v {
+        Lines::One(s) => s.lines().map(str::to_owned).collect(),
+        Lines::Many(v) => v,
+    };
+    Ok(Some(
+        raw.iter()
+            .map(|l| l.split('#').next().unwrap_or("").trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+    ))
 }

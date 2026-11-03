@@ -31,7 +31,7 @@ pub(crate) fn build_entries(
                     reg.names().join(", ")
                 )
             })?;
-            let layer = f(&s.params, bcx).map_err(|e| anyhow!("layer '{}': {e}", s.name))?;
+            let layer = f(&s.params, bcx).map_err(|e| anyhow!("layer '{}': {e:#}", s.name))?;
             let timeout = cfg.resolve_timeout(s.timeout.as_ref(), layer.default_timeout())?;
             Ok(Entry {
                 name: s.name.clone(),

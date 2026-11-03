@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use http2::frame::PseudoId;
 use http2::frame::SettingId;
 use http2::frame::{Priority, StreamDependency};
@@ -6,6 +6,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub struct Http2Config {
     pub settings: Option<Settings>,
@@ -35,6 +36,7 @@ pub struct Http2Config {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub struct HeadersCfg {
     pub headers_order: Option<Vec<String>>,
@@ -42,6 +44,7 @@ pub struct HeadersCfg {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub struct RejectCfg {
     pub headers_order: Option<Vec<String>>,
@@ -52,6 +55,7 @@ pub struct RejectCfg {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub struct H2PriorityFrame {
     pub stream_id: u32,
@@ -61,6 +65,7 @@ pub struct H2PriorityFrame {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct H2HeadersPriority {
     pub exclusive: bool,
     pub depends_on: u32,
@@ -68,6 +73,7 @@ pub struct H2HeadersPriority {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Settings {
     pub header_table_size: Option<u32>,
     pub enable_push: bool,
@@ -79,8 +85,10 @@ pub struct Settings {
 
 impl Http2Config {
     pub fn load(path: &str) -> Result<Self> {
-        let contents = std::fs::read_to_string(path)?;
-        let mut config: Http2Config = toml::from_str(&contents)?;
+        let contents = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read http2 profile '{path}'"))?;
+        let mut config: Http2Config = toml::from_str(&contents)
+            .with_context(|| format!("invalid http2 profile '{path}'"))?;
         if let Some(status) = config.reject_status {
             http::StatusCode::from_u16(status)
                 .map_err(|e| anyhow::anyhow!("[H2] invalid reject_status {status}: {e}"))?;
@@ -92,6 +100,39 @@ impl Http2Config {
             );
         }
         Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        use anyhow::bail;
+        const MAX_WINDOW: u32 = (1 << 31) - 1;
+        if let Some(s) = &self.settings {
+            if let Some(v) = s.max_frame_size {
+                if !(16_384..=16_777_215).contains(&v) {
+                    bail!("settings.max_frame_size = {v}: must be in 16384..=16777215");
+                }
+            }
+            if let Some(v) = s.initial_window_size {
+                if v > MAX_WINDOW {
+                    bail!("settings.initial_window_size = {v}: must be <= {MAX_WINDOW}");
+                }
+            }
+        }
+        if let Some(v) = self.connection_window_update {
+            if v > MAX_WINDOW {
+                bail!("connection_window_update = {v}: must be <= {MAX_WINDOW}");
+            }
+        }
+        if let Some(id) = self.initial_stream_id {
+            if id % 2 == 0 {
+                bail!("initial_stream_id = {id}: client stream ids must be odd");
+            }
+        }
+        self.parse_pseudo_headers()?;
+        self.parse_settings_order()?;
+        self.apply_http_headers(&http::HeaderMap::new())?;
+        self.apply_response_headers()?;
+        self.apply_reject_headers()?;
+        Ok(())
     }
 
     pub fn parse_pseudo_headers(&self) -> anyhow::Result<Vec<PseudoId>> {

@@ -1,10 +1,3 @@
-[settings]
-header_table_size = 65535
-enable_push = false
-max_concurrent_streams = 100
-initial_window_size = 65535
-max_frame_size = 16384
-
 settings_order = [
     "enable_push",
     "header_table_size",
@@ -12,6 +5,13 @@ settings_order = [
     "initial_window_size",
     "max_frame_size",
 ]
+
+[settings]
+header_table_size = 65535
+enable_push = false
+max_concurrent_streams = 100
+initial_window_size = 65535
+max_frame_size = 16384
 
 [http_headers]
 "X-Session-ID" = "id"
