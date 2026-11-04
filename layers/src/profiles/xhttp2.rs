@@ -284,6 +284,61 @@ impl Http2Config {
     }
 }
 
+use super::http2::H2HeadersPriority as PlainHeadersPriority;
+use super::http2::H2PriorityFrame as PlainPriorityFrame;
+use super::http2::Http2Config as PlainConfig;
+use super::http2::HeadersCfg as PlainHeadersCfg;
+use super::http2::RejectCfg as PlainRejectCfg;
+use super::http2::Settings as PlainSettings;
+
+impl From<&Http2Config> for PlainConfig {
+    fn from(x: &Http2Config) -> Self {
+        PlainConfig {
+            settings: x.settings.as_ref().map(|s| PlainSettings {
+                header_table_size: s.header_table_size,
+                enable_push: s.enable_push,
+                max_concurrent_streams: s.max_concurrent_streams,
+                initial_window_size: s.initial_window_size,
+                max_frame_size: s.max_frame_size,
+                max_header_list_size: s.max_header_list_size,
+            }),
+            settings_order: x.settings_order.clone(),
+            connection_window_update: x.connection_window_update,
+            initial_stream_id: x.initial_stream_id,
+            priority_frames: x.priority_frames.as_ref().map(|frames| {
+                frames
+                    .iter()
+                    .map(|f| PlainPriorityFrame {
+                        stream_id: f.stream_id,
+                        exclusive: f.exclusive,
+                        depends_on: f.depends_on,
+                        weight: f.weight,
+                    })
+                    .collect()
+            }),
+            headers_priority: x.headers_priority.as_ref().map(|p| PlainHeadersPriority {
+                exclusive: p.exclusive,
+                depends_on: p.depends_on,
+                weight: p.weight,
+            }),
+            pseudo_headers_order: x.pseudo_headers_order.clone(),
+            headers_order: x.headers_order.clone(),
+            http_headers: x.http_headers.clone(),
+            response: x.response.as_ref().map(|h| PlainHeadersCfg {
+                headers_order: h.headers_order.clone(),
+                http_headers: h.http_headers.clone(),
+            }),
+            reject: x.reject.as_ref().map(|r| PlainRejectCfg {
+                headers_order: r.headers_order.clone(),
+                http_headers: r.http_headers.clone(),
+                body_path: r.body_path.clone(),
+            }),
+            reject_status: x.reject_status,
+            reject_body: None,
+        }
+    }
+}
+
 fn build_header_list(
     order: Option<&Vec<String>>,
     map: Option<&HashMap<String, Option<String>>>,

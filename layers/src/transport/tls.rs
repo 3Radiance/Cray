@@ -2,7 +2,7 @@ use crate::fingerprint::tls::{
     builder::{set_alpn_select_callback, set_alps},
     cert::CertPair,
 };
-use crate::profiles::{get_http2, get_or_build_tls_connector, get_or_load_tls_acceptor, get_tls};
+use crate::profiles::{get_http2_for_alps, get_or_build_tls_connector, get_or_load_tls_acceptor, get_tls};
 use anyhow::{Context, Result, anyhow, bail};
 use btls::ssl::{NameType, SniError, Ssl, SslAcceptor, SslContext, SslMethod};
 use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Input, Layer, Output, Ports, Side, log_tag};
@@ -112,7 +112,7 @@ where
                 "tls profile '{tls_path}' enables 'alps' but the layer has no 'http2_path'"
             )
         })?;
-        let http2 = get_http2(http2_path)?;
+        let http2 = get_http2_for_alps(http2_path)?;
         set_alps(&mut ssl, http2, config);
     }
     let boxed_wire: BoxedStream = Box::pin(wire);
@@ -190,7 +190,7 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
                         "tls profile '{tls_path}' enables 'alps' but the layer has no 'http2_path'"
                     ),
                     Some(hp) => {
-                        get_http2(hp)?;
+                        get_http2_for_alps(hp)?;
                     }
                 }
             }

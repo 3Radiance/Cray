@@ -49,6 +49,11 @@ fn xhttp2_builder_cache() -> &'static DashMap<ProfileKey, Arc<::http2::client::B
     CACHE.get_or_init(DashMap::new)
 }
 
+fn http2_alps_cache() -> &'static DashMap<ProfileKey, Arc<Http2Config>> {
+    static CACHE: OnceLock<DashMap<ProfileKey, Arc<Http2Config>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
 fn xhttp2_cache() -> &'static DashMap<ProfileKey, Arc<Xhttp2Config>> {
     static CACHE: OnceLock<DashMap<ProfileKey, Arc<Xhttp2Config>>> = OnceLock::new();
     CACHE.get_or_init(DashMap::new)
@@ -80,6 +85,28 @@ pub fn get_xhttp2(profile_path: &str) -> Result<Arc<Xhttp2Config>> {
         return Ok(Arc::clone(&c));
     }
     let built = Arc::new(Xhttp2Config::load(profile_path)?);
+    cache.insert(profile_path.to_string(), Arc::clone(&built));
+    Ok(built)
+}
+
+pub fn get_http2_for_alps(profile_path: &str) -> Result<Arc<Http2Config>> {
+    let cache = http2_alps_cache();
+    if let Some(c) = cache.get(profile_path) {
+        return Ok(Arc::clone(&c));
+    }
+    let h2 = match Http2Config::load(profile_path) {
+        Ok(h) => h,
+        Err(plain_err) => match get_xhttp2(profile_path) {
+            Ok(x) => Http2Config::from(&*x),
+            Err(x_err) => {
+                return Err(anyhow::anyhow!(
+                    "profile '{profile_path}' is not a valid http2 or xhttp2 profile\n  http2: {plain_err:#}\n  xhttp2: {x_err:#}"
+                ))
+            }
+        },
+    };
+    h2.validate()?;
+    let built = Arc::new(h2);
     cache.insert(profile_path.to_string(), Arc::clone(&built));
     Ok(built)
 }

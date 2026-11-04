@@ -217,7 +217,6 @@ fn tls_lists_accept_array_and_multiline_forms() {
     );
     build_client(&render(&p), &h2_ok()).expect("array form must build");
 }
-
 #[test]
 fn tls_alps_requires_http2_profile() {
     let dir = tmpdir("alps");
@@ -252,6 +251,72 @@ uuid = "11111111-1111-4111-8111-111111111111"
 fn tls_missing_profile_file_names_the_path() {
     let r = build_client_paths("/no/such/tls.toml", "/no/such/http2.toml");
     expect_rejected("missing file", r, "/no/such/tls.toml");
+}
+
+#[test]
+fn tls_alps_accepts_xhttp2_profile() {
+    let dir = tmpdir("alps-xh2");
+    let tls_path = dir.join("tls.toml");
+    let xh2_path = dir.join("xhttp2.toml");
+    let mut p = tls_ok();
+    p.insert("alps", "true".into());
+    std::fs::write(&tls_path, render(&p)).unwrap();
+    std::fs::write(
+        &xh2_path,
+        r#"
+settings_order = ["header_table_size", "max_frame_size"]
+
+[settings]
+header_table_size = 65535
+enable_push = false
+max_frame_size = 16384
+
+[uplink]
+headers_order = ["x-session-id"]
+
+[uplink.http_headers]
+"x-session-id" = "id"
+
+[downlink]
+headers_order = ["x-session-id"]
+
+[downlink.http_headers]
+"x-session-id" = "id"
+"#,
+    )
+    .unwrap();
+    let cfg = format!(
+        r#"
+[[inbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:0"
+[[inbound.layers]]
+type = "http-proxy"
+[[outbound.layers]]
+type = "tcp"
+addr = "127.0.0.1:1"
+[[outbound.layers]]
+type = "tls"
+sni = "example.com"
+tls_path = '{tls_path}'
+http2_path = '{xh2_path}'
+[[outbound.layers]]
+type = "vless"
+uuid = "11111111-1111-4111-8111-111111111111"
+"#,
+        tls_path = tls_path.display(),
+        xh2_path = xh2_path.display()
+    );
+    engine_build(&cfg).expect("xhttp2 profile must build for alps");
+}
+
+#[test]
+fn plain_http2_profile_rejects_xhttp2_sections() {
+    let r = build_client(
+        &render(&tls_ok()),
+        &h2_with_top("[uplink]\nheaders_order = [\"x-session-id\"]"),
+    );
+    expect_rejected("uplink in plain profile", r, "uplink");
 }
 
 #[test]
