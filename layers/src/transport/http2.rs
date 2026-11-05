@@ -170,7 +170,7 @@ async fn server_handshake(plain: BoxedStream, h2: &H2) -> Result<BoxedIncoming> 
 
             if req.method() != method
                 || req.uri().path() != path
-                || req.uri().host().map_or(true, |h| h != authority)
+                || req.uri().host().is_none_or(|h| h != authority)
             {
                 let Ok(r) = build_reject_response(
                     headers.as_deref(),

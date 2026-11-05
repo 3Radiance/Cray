@@ -26,7 +26,7 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         .as_bytes();
 
     Ok(Box::new(Vless {
-        uuid: uuid,
+        uuid,
         side: bcx.side,
     }))
 }

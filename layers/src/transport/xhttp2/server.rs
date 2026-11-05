@@ -220,7 +220,7 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
         .max_concurrent_streams(128)
         .initial_window_size(1 << 20)
         .initial_connection_window_size(4 << 20);
-    let cfg = get_xhttp2(&h2.profile.as_deref().expect("checked at build"))?;
+    let cfg = get_xhttp2(h2.profile.as_deref().expect("checked at build"))?;
 
     let mut conn = builder
         .handshake::<_, Bytes>(plain)
@@ -331,7 +331,7 @@ async fn packet_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
         .max_concurrent_streams(128)
         .initial_window_size(1 << 20)
         .initial_connection_window_size(4 << 20);
-    let cfg = get_xhttp2(&h2.profile.as_deref().expect("checked at build"))?;
+    let cfg = get_xhttp2(h2.profile.as_deref().expect("checked at build"))?;
 
     let mut conn = builder
         .handshake::<_, Bytes>(plain)
@@ -430,7 +430,7 @@ async fn get_handle(
         reject(&cfg, respond);
         return;
     };
-    let Ok(r) = build_response(&*cfg, &Method::GET, &sid) else {
+    let Ok(r) = build_response(&cfg, &Method::GET, &sid) else {
         return;
     };
     let Ok(send_stream) = respond.send_response(r, false) else {
@@ -497,7 +497,7 @@ async fn post_handle(
     }
     drop(guard);
 
-    let Ok(r) = build_response(&*cfg, method, &sid) else {
+    let Ok(r) = build_response(&cfg, method, &sid) else {
         return Err(anyhow!("failed to build"));
     };
     let Ok(_) = respond.send_response(r, true) else {

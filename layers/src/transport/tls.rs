@@ -130,7 +130,7 @@ where
 {
     log_tag!(trace, "TLS", "Starting server TLS handshake");
 
-    let ssl = Ssl::new(&*bundle.base)?;
+    let ssl = Ssl::new(&bundle.base)?;
     let boxed_plain: BoxedStream = Box::pin(plain);
     let mut tls_stream = SslStream::new(ssl, boxed_plain)?;
 

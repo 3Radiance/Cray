@@ -202,19 +202,17 @@ pub fn set_permute_extensions(builder: &mut SslContextBuilder, tls: &TlsConfig) 
 }
 
 pub fn set_status_request(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    if let Some(sts) = &tls.status_request {
-        if *sts {
+    if let Some(sts) = &tls.status_request
+        && *sts {
             builder.enable_ocsp_stapling();
         }
-    }
 }
 
 pub fn set_signed_certificate_timestamp(builder: &mut SslContextBuilder, tls: &TlsConfig) {
-    if let Some(sct) = &tls.signed_certificate_timestamp {
-        if *sct {
+    if let Some(sct) = &tls.signed_certificate_timestamp
+        && *sct {
             builder.enable_signed_cert_timestamps();
         }
-    }
 }
 
 pub fn set_session_ticket(builder: &mut SslContextBuilder, tls: &TlsConfig) {
@@ -228,8 +226,8 @@ pub fn set_session_ticket(builder: &mut SslContextBuilder, tls: &TlsConfig) {
 }
 
 pub fn set_alps(ssl: &mut Ssl, http2: Arc<Http2Config>, tls: Arc<TlsConfig>) {
-    if let Some(alps) = &tls.alps {
-        if *alps {
+    if let Some(alps) = &tls.alps
+        && *alps {
             ssl.set_alps_use_new_codepoint(true);
 
             let alps_payload = http2.encode_alps_payload();
@@ -249,7 +247,6 @@ pub fn set_alps(ssl: &mut Ssl, http2: Arc<Http2Config>, tls: Arc<TlsConfig>) {
                 }
             }
         }
-    }
 }
 
 pub fn set_delegated_credentials(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {

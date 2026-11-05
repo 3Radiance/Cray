@@ -24,15 +24,14 @@ pub fn http2_builder(path: &str) -> Result<http2::client::Builder> {
 
     set_settings_frame(&mut builder, &config)?;
 
-    if let Some(frames) = &config.priority_frames {
-        if !frames.is_empty() {
+    if let Some(frames) = &config.priority_frames
+        && !frames.is_empty() {
             let mut priorities_builder = Priorities::builder();
             for frame in config.parse_priority_frames() {
                 priorities_builder = priorities_builder.push(frame);
             }
             builder.priorities(priorities_builder.build());
         }
-    }
 
     if let Some(dependency) = config.parse_headers_priority() {
         builder.headers_stream_dependency(dependency);
@@ -63,25 +62,25 @@ pub fn set_settings_frame(
 ) -> Result<()> {
     if let Some(settings) = &config.settings {
         if let Some(v) = settings.header_table_size {
-            builder.header_table_size(v as u32);
+            builder.header_table_size(v);
         }
 
         if let Some(v) = settings.initial_window_size {
-            builder.initial_window_size(v as u32);
+            builder.initial_window_size(v);
         }
 
         if let Some(v) = settings.max_frame_size {
-            builder.max_frame_size(v as u32);
+            builder.max_frame_size(v);
         }
 
         if let Some(v) = settings.max_concurrent_streams {
-            builder.max_concurrent_streams(v as u32);
+            builder.max_concurrent_streams(v);
         }
 
         builder.enable_push(settings.enable_push);
 
         if let Some(v) = settings.max_header_list_size {
-            builder.max_header_list_size(v as u32);
+            builder.max_header_list_size(v);
         }
     }
 

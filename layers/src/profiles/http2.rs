@@ -106,27 +106,23 @@ impl Http2Config {
         use anyhow::bail;
         const MAX_WINDOW: u32 = (1 << 31) - 1;
         if let Some(s) = &self.settings {
-            if let Some(v) = s.max_frame_size {
-                if !(16_384..=16_777_215).contains(&v) {
+            if let Some(v) = s.max_frame_size
+                && !(16_384..=16_777_215).contains(&v) {
                     bail!("settings.max_frame_size = {v}: must be in 16384..=16777215");
                 }
-            }
-            if let Some(v) = s.initial_window_size {
-                if v > MAX_WINDOW {
+            if let Some(v) = s.initial_window_size
+                && v > MAX_WINDOW {
                     bail!("settings.initial_window_size = {v}: must be <= {MAX_WINDOW}");
                 }
-            }
         }
-        if let Some(v) = self.connection_window_update {
-            if v > MAX_WINDOW {
+        if let Some(v) = self.connection_window_update
+            && v > MAX_WINDOW {
                 bail!("connection_window_update = {v}: must be <= {MAX_WINDOW}");
             }
-        }
-        if let Some(id) = self.initial_stream_id {
-            if id % 2 == 0 {
+        if let Some(id) = self.initial_stream_id
+            && id % 2 == 0 {
                 bail!("initial_stream_id = {id}: client stream ids must be odd");
             }
-        }
         self.parse_pseudo_headers()?;
         self.parse_settings_order()?;
         self.apply_http_headers(&http::HeaderMap::new())?;
@@ -231,8 +227,8 @@ impl Http2Config {
 
     pub fn encode_alps_payload(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        if let Some(settings_order) = &self.settings_order {
-            if let Some(settings) = &self.settings {
+        if let Some(settings_order) = &self.settings_order
+            && let Some(settings) = &self.settings {
                 for setting_name in settings_order {
                     match setting_name.to_ascii_lowercase().as_str() {
                         "header_table_size" => {
@@ -274,7 +270,6 @@ impl Http2Config {
                     }
                 }
             }
-        }
         bytes
     }
 }

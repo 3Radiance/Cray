@@ -236,8 +236,8 @@ impl Http2Config {
 
     pub fn encode_alps_payload(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        if let Some(settings_order) = &self.settings_order {
-            if let Some(settings) = &self.settings {
+        if let Some(settings_order) = &self.settings_order
+            && let Some(settings) = &self.settings {
                 for setting_name in settings_order {
                     match setting_name.to_ascii_lowercase().as_str() {
                         "header_table_size" => {
@@ -279,7 +279,6 @@ impl Http2Config {
                     }
                 }
             }
-        }
         bytes
     }
 }

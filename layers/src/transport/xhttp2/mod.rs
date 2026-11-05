@@ -119,7 +119,7 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         bail!("XHTTP2 method must not be GET");
     }
 
-    let h2 = get_xhttp2(&cfg.config.as_ref().unwrap())?;
+    let h2 = get_xhttp2(cfg.config.as_ref().unwrap())?;
     if !h2
         .apply_http_headers(&method, &HeaderMap::new())?
         .into_iter()

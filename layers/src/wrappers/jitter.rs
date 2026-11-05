@@ -65,7 +65,7 @@ impl<S> JitterStream<S> {
         let initial_sleep = Box::pin(tokio::time::sleep(Duration::ZERO));
         Self {
             inner,
-            stages: stages.into(),
+            stages,
             idx: 0,
             written: 0,
             slept: false,

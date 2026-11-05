@@ -552,7 +552,7 @@ async fn test_xhttp2_reject_custom_page() {
     .expect("server build");
 
     let (client_wire, server_wire) = duplex(1 << 20);
-    let _server = spawn_layer_server(server_layer, server_wire);
+    spawn_layer_server(server_layer, server_wire);
 
     let mut sr = manual_h2_client(client_wire).await;
 
@@ -585,7 +585,7 @@ async fn test_xhttp2_per_direction_headers_and_responses() {
     .expect("server build");
 
     let (client_wire, server_wire) = duplex(1 << 20);
-    let _server = spawn_layer_server(server_layer, server_wire);
+    spawn_layer_server(server_layer, server_wire);
 
     let mut sr = manual_h2_client(client_wire).await;
     let sid = "a".repeat(32);
@@ -900,14 +900,11 @@ async fn test_xhttp2_packet_up_server_reorders_raw_posts() {
     }
 
     let dup = send_post(&mut sr, &sid, 1, b"zz");
-    match within("duplicate", dup).await {
-        Ok(resp) => assert_ne!(
-            resp.status().as_u16(),
-            200,
-            "duplicate seq must be rejected"
-        ),
-        Err(_) => {}
-    }
+    if let Ok(resp) = within("duplicate", dup).await { assert_ne!(
+        resp.status().as_u16(),
+        200,
+        "duplicate seq must be rejected"
+    ) }
     let mut one = [0u8; 1];
     let n = within("EOF after bad seq", server_stream.read(&mut one))
         .await

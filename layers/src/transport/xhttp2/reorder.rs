@@ -30,7 +30,7 @@ impl Reorder {
                 self.next += 1;
                 vec.push(b);
             }
-            return Ok(vec);
+            Ok(vec)
         } else if seq > self.next {
             match self.pending.entry(seq) {
                 Entry::Occupied(_) => {
@@ -38,9 +38,15 @@ impl Reorder {
                 }
                 Entry::Vacant(slot) => slot.insert(buf),
             };
-            return Ok(vec);
+            Ok(vec)
         } else {
-            return Err(ReorderError::InvalidSeq);
+            Err(ReorderError::InvalidSeq)
         }
+    }
+}
+
+impl Default for Reorder {
+    fn default() -> Self {
+        Self::new()
     }
 }

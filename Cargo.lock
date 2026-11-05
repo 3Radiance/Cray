@@ -220,9 +220,9 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "chromium-roots"
-version = "0.1.2"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d84a1957f8bce40731d95faaf3c444a5ece832d26698cbeaa788d38c3bd01f86"
+checksum = "229b200495e6cf4d4b599a1884c30f5af57898604e6c0bd94a217295c0d1df69"
 dependencies = [
  "rustls-pki-types",
 ]
