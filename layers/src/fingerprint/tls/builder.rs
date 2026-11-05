@@ -203,16 +203,18 @@ pub fn set_permute_extensions(builder: &mut SslContextBuilder, tls: &TlsConfig) 
 
 pub fn set_status_request(builder: &mut SslContextBuilder, tls: &TlsConfig) {
     if let Some(sts) = &tls.status_request
-        && *sts {
-            builder.enable_ocsp_stapling();
-        }
+        && *sts
+    {
+        builder.enable_ocsp_stapling();
+    }
 }
 
 pub fn set_signed_certificate_timestamp(builder: &mut SslContextBuilder, tls: &TlsConfig) {
     if let Some(sct) = &tls.signed_certificate_timestamp
-        && *sct {
-            builder.enable_signed_cert_timestamps();
-        }
+        && *sct
+    {
+        builder.enable_signed_cert_timestamps();
+    }
 }
 
 pub fn set_session_ticket(builder: &mut SslContextBuilder, tls: &TlsConfig) {
@@ -227,26 +229,27 @@ pub fn set_session_ticket(builder: &mut SslContextBuilder, tls: &TlsConfig) {
 
 pub fn set_alps(ssl: &mut Ssl, http2: Arc<Http2Config>, tls: Arc<TlsConfig>) {
     if let Some(alps) = &tls.alps
-        && *alps {
-            ssl.set_alps_use_new_codepoint(true);
+        && *alps
+    {
+        ssl.set_alps_use_new_codepoint(true);
 
-            let alps_payload = http2.encode_alps_payload();
-            let proto = b"h2";
+        let alps_payload = http2.encode_alps_payload();
+        let proto = b"h2";
 
-            unsafe {
-                let res = SSL_add_application_settings(
-                    ssl.as_ptr() as *mut _,
-                    proto.as_ptr(),
-                    proto.len(),
-                    alps_payload.as_ptr(),
-                    alps_payload.len(),
-                );
+        unsafe {
+            let res = SSL_add_application_settings(
+                ssl.as_ptr() as *mut _,
+                proto.as_ptr(),
+                proto.len(),
+                alps_payload.as_ptr(),
+                alps_payload.len(),
+            );
 
-                if res != 1 {
-                    cray_core::log_tag!(warn, "TLS", "Failed to set ALPS settings payload");
-                }
+            if res != 1 {
+                cray_core::log_tag!(warn, "TLS", "Failed to set ALPS settings payload");
             }
         }
+    }
 }
 
 pub fn set_delegated_credentials(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {

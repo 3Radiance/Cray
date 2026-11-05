@@ -237,48 +237,49 @@ impl Http2Config {
     pub fn encode_alps_payload(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         if let Some(settings_order) = &self.settings_order
-            && let Some(settings) = &self.settings {
-                for setting_name in settings_order {
-                    match setting_name.to_ascii_lowercase().as_str() {
-                        "header_table_size" => {
-                            if let Some(val) = settings.header_table_size {
-                                bytes.extend_from_slice(&1u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "enable_push" => {
-                            let val = if settings.enable_push { 1u32 } else { 0u32 };
-                            bytes.extend_from_slice(&2u16.to_be_bytes());
+            && let Some(settings) = &self.settings
+        {
+            for setting_name in settings_order {
+                match setting_name.to_ascii_lowercase().as_str() {
+                    "header_table_size" => {
+                        if let Some(val) = settings.header_table_size {
+                            bytes.extend_from_slice(&1u16.to_be_bytes());
                             bytes.extend_from_slice(&val.to_be_bytes());
                         }
-                        "max_concurrent_streams" => {
-                            if let Some(val) = settings.max_concurrent_streams {
-                                bytes.extend_from_slice(&3u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "initial_window_size" => {
-                            if let Some(val) = settings.initial_window_size {
-                                bytes.extend_from_slice(&4u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "max_frame_size" => {
-                            if let Some(val) = settings.max_frame_size {
-                                bytes.extend_from_slice(&5u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "max_header_list_size" => {
-                            if let Some(val) = settings.max_header_list_size {
-                                bytes.extend_from_slice(&6u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        _ => {}
                     }
+                    "enable_push" => {
+                        let val = if settings.enable_push { 1u32 } else { 0u32 };
+                        bytes.extend_from_slice(&2u16.to_be_bytes());
+                        bytes.extend_from_slice(&val.to_be_bytes());
+                    }
+                    "max_concurrent_streams" => {
+                        if let Some(val) = settings.max_concurrent_streams {
+                            bytes.extend_from_slice(&3u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "initial_window_size" => {
+                        if let Some(val) = settings.initial_window_size {
+                            bytes.extend_from_slice(&4u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "max_frame_size" => {
+                        if let Some(val) = settings.max_frame_size {
+                            bytes.extend_from_slice(&5u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "max_header_list_size" => {
+                        if let Some(val) = settings.max_header_list_size {
+                            bytes.extend_from_slice(&6u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    _ => {}
                 }
             }
+        }
         bytes
     }
 }

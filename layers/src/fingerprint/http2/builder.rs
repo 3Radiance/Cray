@@ -25,13 +25,14 @@ pub fn http2_builder(path: &str) -> Result<http2::client::Builder> {
     set_settings_frame(&mut builder, &config)?;
 
     if let Some(frames) = &config.priority_frames
-        && !frames.is_empty() {
-            let mut priorities_builder = Priorities::builder();
-            for frame in config.parse_priority_frames() {
-                priorities_builder = priorities_builder.push(frame);
-            }
-            builder.priorities(priorities_builder.build());
+        && !frames.is_empty()
+    {
+        let mut priorities_builder = Priorities::builder();
+        for frame in config.parse_priority_frames() {
+            priorities_builder = priorities_builder.push(frame);
         }
+        builder.priorities(priorities_builder.build());
+    }
 
     if let Some(dependency) = config.parse_headers_priority() {
         builder.headers_stream_dependency(dependency);

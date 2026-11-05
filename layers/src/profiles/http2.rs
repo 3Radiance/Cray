@@ -107,22 +107,26 @@ impl Http2Config {
         const MAX_WINDOW: u32 = (1 << 31) - 1;
         if let Some(s) = &self.settings {
             if let Some(v) = s.max_frame_size
-                && !(16_384..=16_777_215).contains(&v) {
-                    bail!("settings.max_frame_size = {v}: must be in 16384..=16777215");
-                }
+                && !(16_384..=16_777_215).contains(&v)
+            {
+                bail!("settings.max_frame_size = {v}: must be in 16384..=16777215");
+            }
             if let Some(v) = s.initial_window_size
-                && v > MAX_WINDOW {
-                    bail!("settings.initial_window_size = {v}: must be <= {MAX_WINDOW}");
-                }
+                && v > MAX_WINDOW
+            {
+                bail!("settings.initial_window_size = {v}: must be <= {MAX_WINDOW}");
+            }
         }
         if let Some(v) = self.connection_window_update
-            && v > MAX_WINDOW {
-                bail!("connection_window_update = {v}: must be <= {MAX_WINDOW}");
-            }
+            && v > MAX_WINDOW
+        {
+            bail!("connection_window_update = {v}: must be <= {MAX_WINDOW}");
+        }
         if let Some(id) = self.initial_stream_id
-            && id % 2 == 0 {
-                bail!("initial_stream_id = {id}: client stream ids must be odd");
-            }
+            && id % 2 == 0
+        {
+            bail!("initial_stream_id = {id}: client stream ids must be odd");
+        }
         self.parse_pseudo_headers()?;
         self.parse_settings_order()?;
         self.apply_http_headers(&http::HeaderMap::new())?;
@@ -228,48 +232,49 @@ impl Http2Config {
     pub fn encode_alps_payload(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         if let Some(settings_order) = &self.settings_order
-            && let Some(settings) = &self.settings {
-                for setting_name in settings_order {
-                    match setting_name.to_ascii_lowercase().as_str() {
-                        "header_table_size" => {
-                            if let Some(val) = settings.header_table_size {
-                                bytes.extend_from_slice(&1u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "enable_push" => {
-                            let val = if settings.enable_push { 1u32 } else { 0u32 };
-                            bytes.extend_from_slice(&2u16.to_be_bytes());
+            && let Some(settings) = &self.settings
+        {
+            for setting_name in settings_order {
+                match setting_name.to_ascii_lowercase().as_str() {
+                    "header_table_size" => {
+                        if let Some(val) = settings.header_table_size {
+                            bytes.extend_from_slice(&1u16.to_be_bytes());
                             bytes.extend_from_slice(&val.to_be_bytes());
                         }
-                        "max_concurrent_streams" => {
-                            if let Some(val) = settings.max_concurrent_streams {
-                                bytes.extend_from_slice(&3u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "initial_window_size" => {
-                            if let Some(val) = settings.initial_window_size {
-                                bytes.extend_from_slice(&4u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "max_frame_size" => {
-                            if let Some(val) = settings.max_frame_size {
-                                bytes.extend_from_slice(&5u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        "max_header_list_size" => {
-                            if let Some(val) = settings.max_header_list_size {
-                                bytes.extend_from_slice(&6u16.to_be_bytes());
-                                bytes.extend_from_slice(&val.to_be_bytes());
-                            }
-                        }
-                        _ => {}
                     }
+                    "enable_push" => {
+                        let val = if settings.enable_push { 1u32 } else { 0u32 };
+                        bytes.extend_from_slice(&2u16.to_be_bytes());
+                        bytes.extend_from_slice(&val.to_be_bytes());
+                    }
+                    "max_concurrent_streams" => {
+                        if let Some(val) = settings.max_concurrent_streams {
+                            bytes.extend_from_slice(&3u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "initial_window_size" => {
+                        if let Some(val) = settings.initial_window_size {
+                            bytes.extend_from_slice(&4u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "max_frame_size" => {
+                        if let Some(val) = settings.max_frame_size {
+                            bytes.extend_from_slice(&5u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "max_header_list_size" => {
+                        if let Some(val) = settings.max_header_list_size {
+                            bytes.extend_from_slice(&6u16.to_be_bytes());
+                            bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    _ => {}
                 }
             }
+        }
         bytes
     }
 }

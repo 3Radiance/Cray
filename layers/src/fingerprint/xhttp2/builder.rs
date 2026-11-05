@@ -25,13 +25,14 @@ pub fn xhttp2_builder(path: &str) -> Result<http2::client::Builder> {
     set_settings_frame(&mut builder, &config)?;
 
     if let Some(frames) = &config.priority_frames
-        && !frames.is_empty() {
-            let mut priorities_builder = Priorities::builder();
-            for frame in config.parse_priority_frames() {
-                priorities_builder = priorities_builder.push(frame);
-            }
-            builder.priorities(priorities_builder.build());
+        && !frames.is_empty()
+    {
+        let mut priorities_builder = Priorities::builder();
+        for frame in config.parse_priority_frames() {
+            priorities_builder = priorities_builder.push(frame);
         }
+        builder.priorities(priorities_builder.build());
+    }
 
     if let Some(dependency) = config.parse_headers_priority() {
         builder.headers_stream_dependency(dependency);
@@ -91,22 +92,26 @@ fn validate(x: &Xhttp2Config) -> Result<()> {
     const MAX_WINDOW: u32 = (1 << 31) - 1;
     if x.settings.as_ref().is_some() {
         if let Some(v) = x.settings.as_ref().unwrap().max_frame_size
-            && !(16_384..=16_777_215).contains(&v) {
-                anyhow::bail!("settings.max_frame_size = {v}: must be in 16384..=16777215");
-            }
+            && !(16_384..=16_777_215).contains(&v)
+        {
+            anyhow::bail!("settings.max_frame_size = {v}: must be in 16384..=16777215");
+        }
         if let Some(v) = x.settings.as_ref().unwrap().initial_window_size
-            && v > MAX_WINDOW {
-                anyhow::bail!("settings.initial_window_size = {v}: must be <= {MAX_WINDOW}");
-            }
+            && v > MAX_WINDOW
+        {
+            anyhow::bail!("settings.initial_window_size = {v}: must be <= {MAX_WINDOW}");
+        }
     }
     if let Some(v) = x.connection_window_update
-        && v > MAX_WINDOW {
-            anyhow::bail!("connection_window_update = {v}: must be <= {MAX_WINDOW}");
-        }
+        && v > MAX_WINDOW
+    {
+        anyhow::bail!("connection_window_update = {v}: must be <= {MAX_WINDOW}");
+    }
     if let Some(id) = x.initial_stream_id
-        && id % 2 == 0 {
-            anyhow::bail!("initial_stream_id = {id}: client stream ids must be odd");
-        }
+        && id % 2 == 0
+    {
+        anyhow::bail!("initial_stream_id = {id}: client stream ids must be odd");
+    }
     x.parse_pseudo_headers()?;
     x.parse_settings_order()?;
     x.apply_http_headers(&http::Method::GET, &http::HeaderMap::new())?;

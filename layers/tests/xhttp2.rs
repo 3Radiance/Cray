@@ -900,11 +900,13 @@ async fn test_xhttp2_packet_up_server_reorders_raw_posts() {
     }
 
     let dup = send_post(&mut sr, &sid, 1, b"zz");
-    if let Ok(resp) = within("duplicate", dup).await { assert_ne!(
-        resp.status().as_u16(),
-        200,
-        "duplicate seq must be rejected"
-    ) }
+    if let Ok(resp) = within("duplicate", dup).await {
+        assert_ne!(
+            resp.status().as_u16(),
+            200,
+            "duplicate seq must be rejected"
+        )
+    }
     let mut one = [0u8; 1];
     let n = within("EOF after bad seq", server_stream.read(&mut one))
         .await
