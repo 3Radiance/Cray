@@ -13,6 +13,3 @@ max_concurrent_streams = 100
 initial_window_size = 65535
 max_frame_size = 16384
 
-[http_headers]
-"X-Session-ID" = "id"
-"content-type" = "application/grpc"

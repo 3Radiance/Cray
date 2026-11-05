@@ -23,14 +23,14 @@ where
 }
 
 pub mod crypto;
-mod fingerprint;
-mod profiles;
-mod protocol;
-mod proxy;
-mod tcp;
-mod transport;
-mod unix;
-mod wrappers;
+pub mod fingerprint;
+pub mod profiles;
+pub mod protocol;
+pub mod proxy;
+pub mod tcp;
+pub mod transport;
+pub mod unix;
+pub mod wrappers;
 
 pub fn register(r: &mut Registry) {
     r.add("tcp", tcp::build);

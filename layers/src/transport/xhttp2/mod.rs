@@ -8,7 +8,6 @@ use cray_core::{
 };
 use http::{HeaderMap, Method};
 use http2::client::ResponseFuture;
-use http2::server::SendResponse;
 use http2::{RecvStream, SendStream};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -19,8 +18,9 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 
-mod client;
-mod server;
+pub mod client;
+pub mod reorder;
+pub mod server;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +32,7 @@ struct XH2Cfg {
     mode: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct XH2 {
     method: http::Method,
     authority: String,
@@ -42,14 +43,15 @@ pub struct XH2 {
     mode: Mode,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     StreamUP,
     PacketUP,
 }
 
 pub enum Pair {
-    Write((RecvStream, SendResponse<Bytes>)),
-    Read((RecvStream, SendResponse<Bytes>)),
+    Get(SendStream<Bytes>),
+    Post(RecvStream),
 }
 
 fn req_host(req: &http::Request<http2::RecvStream>) -> Option<String> {
@@ -140,9 +142,10 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
     }
 
     let mode = match cfg.mode.as_deref() {
-        Some("StreamUp") | None => Mode::StreamUP,
+        Some("StreamUp") => Mode::StreamUP,
         Some("PacketUp") => Mode::PacketUP,
         Some(m) => bail!("unknown mode {m}"),
+        None => bail!("need mode"),
     };
     Ok(Box::new(XH2 {
         method,

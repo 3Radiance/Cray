@@ -29,3 +29,9 @@ foreign-types-shared.workspace = true
 dashmap.workspace = true
 rand.workspace = true
 hex.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+http2 = { workspace = true, features = ["tracing"] }

@@ -48,19 +48,7 @@ fn build_xhttp2(
     config: &str,
     side: Side,
 ) -> anyhow::Result<Box<dyn Layer>> {
-    let mut reg = Registry::new();
-    cray_layers::register(&mut reg);
-    let factory = reg.get("xhttp2").expect("xhttp2 is registered");
-    let toml_str = format!(
-        r#"
-host = "{host}"
-path = "{path}"
-method = "{method}"
-config = "{config}"
-"#
-    );
-    let params: toml::Table = toml_str.parse().unwrap();
-    factory(&params, &BuildCx { side })
+    build_xhttp2_mode(host, path, method, config, side, "StreamUp")
 }
 
 #[tokio::test]
@@ -80,6 +68,7 @@ async fn test_xhttp2_build_validation() {
 
     let no_method: toml::Table = r#"host = "example.com"
 path = "/test"
+mode = "StreamUp"
 config = "/tmp/fake""#
         .parse()
         .unwrap();
@@ -473,9 +462,7 @@ async fn read_body(mut body: http2::RecvStream) -> Vec<u8> {
                 match body.poll_data(cx) {
                     std::task::Poll::Pending => return std::task::Poll::Pending,
                     std::task::Poll::Ready(None) => return std::task::Poll::Ready(true),
-                    std::task::Poll::Ready(Some(Err(_))) => {
-                        return std::task::Poll::Ready(true)
-                    }
+                    std::task::Poll::Ready(Some(Err(_))) => return std::task::Poll::Ready(true),
                     std::task::Poll::Ready(Some(Ok(chunk))) => {
                         let _ = body.flow_control().release_capacity(chunk.len());
                         out.extend_from_slice(&chunk);
@@ -636,4 +623,329 @@ async fn test_xhttp2_per_direction_headers_and_responses() {
     assert_eq!(post_resp.status().as_u16(), 200);
     assert_header(&post_resp, "server", "nginx-up");
     assert_header(&post_resp, "data", &sid);
+}
+
+fn make_packet_profile(tag: &str) -> PathBuf {
+    write_profile(
+        tag,
+        r#"
+[settings]
+header_table_size = 4096
+enable_push = false
+initial_window_size = 65535
+max_frame_size = 16384
+
+[uplink]
+headers_order = ["x-session-id", "x-packet-seq", "user-agent"]
+
+[uplink.http_headers]
+"x-session-id" = "id"
+"x-packet-seq" = "seq"
+"user-agent" = "cray-test"
+
+[downlink]
+headers_order = ["x-session-id", "user-agent"]
+
+[downlink.http_headers]
+"x-session-id" = "id"
+"user-agent" = "cray-test"
+"#,
+    )
+}
+
+fn build_xhttp2_mode(
+    host: &str,
+    path: &str,
+    method: &str,
+    config: &str,
+    side: Side,
+    mode: &str,
+) -> anyhow::Result<Box<dyn Layer>> {
+    let mut reg = Registry::new();
+    cray_layers::register(&mut reg);
+    let factory = reg.get("xhttp2").expect("xhttp2 is registered");
+    let toml_str = format!(
+        r#"
+host = "{host}"
+path = "{path}"
+method = "{method}"
+config = "{config}"
+mode = "{mode}"
+"#
+    );
+    let params: toml::Table = toml_str.parse().unwrap();
+    factory(&params, &BuildCx { side })
+}
+
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+}
+
+// ============ packet-up ============
+use std::future::Future;
+use std::time::Duration;
+
+const PACKET_MODE: &str = "PacketUp";
+
+async fn within<F: Future>(what: &str, f: F) -> F::Output {
+    tokio::time::timeout(Duration::from_secs(10), f)
+        .await
+        .unwrap_or_else(|_| panic!("{what}: timed out"))
+}
+
+fn packet_layer(profile: &std::path::Path, side: Side) -> Box<dyn Layer> {
+    build_xhttp2_mode(
+        "127.0.0.1",
+        "/split-http",
+        "POST",
+        profile.to_str().unwrap(),
+        side,
+        PACKET_MODE,
+    )
+    .expect("build layer")
+}
+
+fn spawn_server_handshake(
+    layer: Box<dyn Layer>,
+    wire: tokio::io::DuplexStream,
+) -> tokio::task::JoinHandle<BoxedIncoming> {
+    tokio::spawn(async move {
+        let mut cx = Cx::default();
+        match layer
+            .call(Input::Stream(Box::pin(wire)), &mut cx)
+            .await
+            .expect("server handshake")
+        {
+            Output::Streams(incoming) => incoming,
+            _ => panic!("expected Output::Streams"),
+        }
+    })
+}
+
+async fn packet_up_pair(tag: &str) -> (BoxedStream, BoxedStream, BoxedIncoming) {
+    init_tracing();
+    let profile = make_packet_profile(tag);
+    let (client_wire, server_wire) = duplex(1 << 20);
+
+    let server = spawn_server_handshake(packet_layer(&profile, Side::Inbound), server_wire);
+    let client_layer = packet_layer(&profile, Side::Outbound);
+    let client = tokio::spawn(async move {
+        let mut cx = Cx::default();
+        match client_layer
+            .call(Input::Stream(Box::pin(client_wire)), &mut cx)
+            .await
+            .expect("client handshake")
+        {
+            Output::Stream(s) => s,
+            _ => panic!("expected Output::Stream"),
+        }
+    });
+
+    let mut incoming = within("server handshake", server).await.unwrap();
+    let client_stream = within("client handshake", client).await.unwrap();
+    let server_stream = within("accept", incoming.accept())
+        .await
+        .expect("accept returned None");
+    (client_stream, server_stream, incoming)
+}
+
+fn first_diff(a: &[u8], b: &[u8]) -> Option<usize> {
+    a.iter().zip(b).position(|(x, y)| x != y)
+}
+
+#[tokio::test]
+async fn test_xhttp2_packet_up_roundtrip_and_fin() {
+    let (mut client, mut server, _incoming) = packet_up_pair("pu-roundtrip").await;
+
+    let parts: [&[u8]; 3] = [b"one|", b"two|", b"three"];
+    for part in parts {
+        client.write_all(part).await.expect("client write");
+    }
+    let mut buf = vec![0u8; 13];
+    within("server read", server.read_exact(&mut buf))
+        .await
+        .expect("server read");
+    assert_eq!(&buf, b"one|two|three");
+
+    server.write_all(b"pong").await.expect("server write");
+    let mut back = [0u8; 4];
+    within("client read", client.read_exact(&mut back))
+        .await
+        .expect("client read");
+    assert_eq!(&back, b"pong");
+
+    client.shutdown().await.expect("client shutdown");
+    let mut rest = Vec::new();
+    let n = within("EOF after FIN", server.read_to_end(&mut rest))
+        .await
+        .expect("read_to_end");
+    assert_eq!(n, 0, "server must see EOF right after FIN");
+}
+
+#[tokio::test]
+async fn test_xhttp2_packet_up_large_payload_in_order() {
+    const SIZE: usize = 4 * 1024 * 1024;
+    let (client, server, _incoming) = packet_up_pair("pu-large").await;
+
+    let up: Vec<u8> = (0..SIZE).map(|i| ((i * 31) % 251) as u8).collect();
+    let down: Vec<u8> = (0..SIZE).map(|i| ((i * 47 + 113) % 251) as u8).collect();
+    let (mut cr, mut cw) = tokio::io::split(client);
+    let (mut sr, mut sw) = tokio::io::split(server);
+
+    let mut got_up = vec![0u8; SIZE];
+    let mut got_down = vec![0u8; SIZE];
+    let (w1, r1, w2, r2) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(
+            cw.write_all(&up),
+            sr.read_exact(&mut got_up),
+            sw.write_all(&down),
+            cr.read_exact(&mut got_down),
+        )
+    })
+    .await
+    .expect("transfer timed out");
+    w1.expect("client write");
+    r1.expect("server read");
+    w2.expect("server write");
+    r2.expect("client read");
+
+    assert!(
+        got_up == up,
+        "client -> server mismatch, first diff at {:?}",
+        first_diff(&got_up, &up)
+    );
+    assert!(
+        got_down == down,
+        "server -> client mismatch, first diff at {:?}",
+        first_diff(&got_down, &down)
+    );
+}
+
+fn raw_req(method: &str, sid: &str, seq: Option<u64>) -> Request<()> {
+    let mut b = Request::builder()
+        .method(method)
+        .uri("https://127.0.0.1/split-http")
+        .header("x-session-id", sid)
+        .header("user-agent", "cray-test");
+    if let Some(s) = seq {
+        b = b.header("x-packet-seq", s.to_string());
+    }
+    b.body(()).unwrap()
+}
+
+fn send_post(
+    sr: &mut http2::client::SendRequest<Bytes>,
+    sid: &str,
+    seq: u64,
+    body: &'static [u8],
+) -> http2::client::ResponseFuture {
+    let (resp, mut stream) = sr
+        .send_request(raw_req("POST", sid, Some(seq)), false)
+        .expect("send POST");
+    stream
+        .send_data(Bytes::from_static(body), true)
+        .expect("send POST body");
+    resp
+}
+
+async fn body_ends_cleanly(mut body: http2::RecvStream) -> bool {
+    while let Some(chunk) = body.data().await {
+        match chunk {
+            Ok(c) => {
+                let _ = body.flow_control().release_capacity(c.len());
+            }
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+#[tokio::test]
+async fn test_xhttp2_packet_up_server_reorders_raw_posts() {
+    init_tracing();
+    let profile = make_packet_profile("pu-server-raw");
+    let (client_wire, server_wire) = duplex(1 << 20);
+    let server = spawn_server_handshake(packet_layer(&profile, Side::Inbound), server_wire);
+    let mut sr = manual_h2_client(client_wire).await;
+    let mut incoming = within("server handshake", server).await.unwrap();
+    let sid = "c".repeat(32);
+
+    let (_get_resp, _get_body) = sr
+        .send_request(raw_req("GET", &sid, None), true)
+        .expect("send GET");
+    let mut server_stream = within("accept", incoming.accept())
+        .await
+        .expect("accept returned None");
+
+    let r2 = send_post(&mut sr, &sid, 2, b"cc");
+    let r0 = send_post(&mut sr, &sid, 0, b"aa");
+    let r1 = send_post(&mut sr, &sid, 1, b"bb");
+
+    let mut buf = [0u8; 6];
+    within("read reordered", server_stream.read_exact(&mut buf))
+        .await
+        .expect("read");
+    assert_eq!(&buf, b"aabbcc", "server must deliver in seq order");
+
+    for (name, resp) in [("seq 2", r2), ("seq 0", r0), ("seq 1", r1)] {
+        let resp = within(name, resp).await.expect("POST response");
+        assert_eq!(resp.status().as_u16(), 200, "{name}");
+        assert!(
+            within(name, body_ends_cleanly(resp.into_body())).await,
+            "{name}: response stream was reset instead of closed"
+        );
+    }
+
+    let dup = send_post(&mut sr, &sid, 1, b"zz");
+    match within("duplicate", dup).await {
+        Ok(resp) => assert_ne!(
+            resp.status().as_u16(),
+            200,
+            "duplicate seq must be rejected"
+        ),
+        Err(_) => {}
+    }
+    let mut one = [0u8; 1];
+    let n = within("EOF after bad seq", server_stream.read(&mut one))
+        .await
+        .expect("read after reject");
+    assert_eq!(n, 0, "session must be closed after a bad seq");
+}
+
+#[tokio::test]
+async fn test_xhttp2_mode_validation() {
+    let profile = make_packet_profile("mode-validation");
+    let p = profile.to_str().unwrap();
+
+    assert!(
+        build_xhttp2_mode("example.com", "/test", "POST", p, Side::Inbound, "StreamUp").is_ok()
+    );
+    assert!(
+        build_xhttp2_mode("example.com", "/test", "POST", p, Side::Inbound, "PacketUp").is_ok()
+    );
+    assert!(build_xhttp2_mode("example.com", "/test", "POST", p, Side::Inbound, "nope").is_err());
+
+    let mut reg = Registry::new();
+    cray_layers::register(&mut reg);
+    let factory = reg.get("xhttp2").unwrap();
+    let no_mode: toml::Table = format!(
+        r#"host = "example.com"
+path = "/test"
+method = "POST"
+config = "{p}""#
+    )
+    .parse()
+    .unwrap();
+    assert!(
+        factory(
+            &no_mode,
+            &BuildCx {
+                side: Side::Inbound
+            }
+        )
+        .is_err()
+    );
 }

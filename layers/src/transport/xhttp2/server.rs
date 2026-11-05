@@ -1,12 +1,21 @@
+use super::client::MAX_BODY;
 use super::{Channel, Mode, Pair, XH2, XH2Rx, XH2Tx, req_host};
+use super::{ChunkRx, reorder::Reorder};
 use crate::profiles::{Xhttp2Config, get_xhttp2};
 use crate::transport::chunk::ChunkStream;
-use anyhow::{Result, anyhow, bail};
-use bytes::Bytes;
+use anyhow::{Result, anyhow};
+use bytes::{Bytes, BytesMut};
 use cray_core::{BoxedIncoming, BoxedStream, log_tag};
+use dashmap::DashMap;
+use http::Request;
 use http::{HeaderMap, Method, Response};
+use http2::{RecvStream, server::SendResponse};
+use std::collections::HashMap;
+use std::io;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::sync::OnceLock;
+use std::task::{Context, Poll};
+use tokio::sync::{Mutex, mpsc};
 
 fn build_response(cfg: &Xhttp2Config, method: &Method, sid: &str) -> anyhow::Result<Response<()>> {
     let mut b = Response::builder().status(200);
@@ -27,10 +36,7 @@ fn build_response(cfg: &Xhttp2Config, method: &Method, sid: &str) -> anyhow::Res
     Ok(b.body(()).unwrap())
 }
 
-fn build_reject_response(
-    cfg: &Xhttp2Config,
-    body: Option<&[u8]>,
-) -> anyhow::Result<Response<()>> {
+fn build_reject_response(cfg: &Xhttp2Config, body: Option<&[u8]>) -> anyhow::Result<Response<()>> {
     let mut b = Response::builder().status(cfg.reject_status.unwrap_or(404));
     let mut content_type = false;
     for (k, v) in cfg.apply_reject_headers()? {
@@ -48,10 +54,157 @@ fn build_reject_response(
 pub async fn server_handshake(plain: BoxedStream, h2: &XH2, mode: &Mode) -> Result<BoxedIncoming> {
     let sock = match mode {
         Mode::StreamUP => stream_up(plain, h2).await?,
-        Mode::PacketUP => bail!("not suported"),
+        Mode::PacketUP => packet_up(plain, h2).await?,
     };
 
     Ok(sock)
+}
+
+fn find_id_header(cfg: &Xhttp2Config, method: &Method) -> Result<String> {
+    cfg.apply_http_headers(method, &HeaderMap::new())?
+        .into_iter()
+        .find(|(_, v)| v == "id")
+        .map(|(k, _)| k.as_str().to_owned())
+        .ok_or(anyhow!("XH2 requires an id header"))
+}
+
+fn route_sid(
+    req: &Request<RecvStream>,
+    path: &str,
+    authority: &str,
+    header: &str,
+) -> Option<String> {
+    let host_ok = req_host(req).is_some_and(|h| h.eq_ignore_ascii_case(authority));
+    if req.uri().path() != path || !host_ok {
+        log_tag!(
+            trace,
+            "XH2",
+            "rejecting request for path '{}' host {:?} method {}",
+            req.uri().path(),
+            req_host(req),
+            req.method()
+        );
+        return None;
+    }
+
+    let sid = req
+        .headers()
+        .get(header)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit()));
+
+    if sid.is_none() {
+        log_tag!(
+            trace,
+            "XH2",
+            "missing/invalid sid header on {} request",
+            req.method()
+        );
+    }
+    sid.map(str::to_owned)
+}
+
+fn reject(cfg: &Xhttp2Config, mut respond: SendResponse<Bytes>) {
+    let body = cfg.reject_body.as_deref();
+    let Ok(r) = build_reject_response(cfg, body) else {
+        return;
+    };
+    let _ = match body {
+        Some(body) => match respond.send_response(r, false) {
+            Ok(mut stream) => stream.send_data(Bytes::copy_from_slice(body), true),
+            Err(e) => Err(e),
+        },
+        None => respond.send_response(r, true).map(|_| ()),
+    };
+}
+
+fn method_not_allowed(method: &Method, mut respond: SendResponse<Bytes>) {
+    log_tag!(trace, "XH2", "unexpected method {}", method);
+    let r = Response::builder().status(405).body(()).unwrap();
+    let _ = respond.send_response(r, true);
+}
+
+async fn deliver(tx: &mpsc::Sender<BoxedStream>, stream: BoxedStream) -> bool {
+    tx.send(stream).await.is_ok()
+}
+
+async fn on_get(
+    mut respond: SendResponse<Bytes>,
+    sid: String,
+    cfg: &Xhttp2Config,
+    pair: &Mutex<HashMap<String, Pair>>,
+    tx: &mpsc::Sender<BoxedStream>,
+) -> bool {
+    let mut guard = pair.lock().await;
+
+    let Ok(r) = build_response(cfg, &Method::GET, &sid) else {
+        return true;
+    };
+
+    match guard.remove(&sid) {
+        Some(Pair::Post(post_body)) => {
+            log_tag!(trace, "XH2", "paired stream (GET arrived second)");
+
+            let Ok(send_stream) = respond.send_response(r, false) else {
+                return true;
+            };
+
+            let stream: BoxedStream =
+                Box::pin(ChunkStream::new(XH2Rx::Body(post_body), XH2Tx(send_stream)));
+
+            drop(guard);
+            deliver(tx, stream).await
+        }
+        _ => {
+            log_tag!(trace, "XH2", "parked GET half, waiting for POST");
+            let Ok(send_stream) = respond.send_response(r, false) else {
+                return true;
+            };
+            guard.insert(sid, Pair::Get(send_stream));
+            true
+        }
+    }
+}
+
+async fn on_post(
+    req: Request<RecvStream>,
+    mut respond: SendResponse<Bytes>,
+    sid: String,
+    cfg: &Xhttp2Config,
+    method: &Method,
+    pair: &Mutex<HashMap<String, Pair>>,
+    tx: &mpsc::Sender<BoxedStream>,
+) -> bool {
+    let mut guard = pair.lock().await;
+    let Ok(r) = build_response(cfg, method, &sid) else {
+        return true;
+    };
+
+    match guard.remove(&sid) {
+        Some(Pair::Get(send_stream)) => {
+            log_tag!(trace, "XH2", "paired stream (POST arrived second)");
+
+            let Ok(_) = respond.send_response(r, false) else {
+                return true;
+            };
+
+            let stream: BoxedStream = Box::pin(ChunkStream::new(
+                XH2Rx::Body(req.into_body()),
+                XH2Tx(send_stream),
+            ));
+
+            drop(guard);
+            deliver(tx, stream).await
+        }
+        _ => {
+            log_tag!(trace, "XH2", "parked POST half, waiting for GET");
+            if respond.send_response(r, true).is_err() {
+                return true;
+            }
+            guard.insert(sid, Pair::Post(req.into_body()));
+            true
+        }
+    }
 }
 
 async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
@@ -67,7 +220,7 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
         .max_concurrent_streams(128)
         .initial_window_size(1 << 20)
         .initial_connection_window_size(4 << 20);
-    let headers = get_xhttp2(&h2.profile.as_deref().expect("checked at build"))?;
+    let cfg = get_xhttp2(&h2.profile.as_deref().expect("checked at build"))?;
 
     let mut conn = builder
         .handshake::<_, Bytes>(plain)
@@ -78,27 +231,13 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
     let (method, path, authority) = (h2.method.clone(), h2.path.clone(), h2.authority.clone());
     log_tag!(debug, "XH2", "XHTTP/2 listener ready");
 
-    let pair = Arc::clone(&h2.pair);
-    let post_header = headers
-        .apply_http_headers(&h2.method, &HeaderMap::new())?
-        .into_iter()
-        .find(|(_, v)| v == "id")
-        .map(|(k, _)| k)
-        .ok_or(anyhow!("XH2 requires an id header"))?;
-
-    let get_header = headers
-        .apply_http_headers(&Method::GET, &HeaderMap::new())?
-        .into_iter()
-        .find(|(_, v)| v == "id")
-        .map(|(k, _)| k)
-        .ok_or(anyhow!("XH2 requires an id header"))?;
-
-    let reject_body = headers.reject_body.clone();
-    let headers = Arc::clone(&headers);
+    let pair = std::sync::Arc::clone(&h2.pair);
+    let post_header = find_id_header(&cfg, &h2.method)?;
+    let get_header = find_id_header(&cfg, &Method::GET)?;
 
     tokio::spawn(async move {
         while let Some(res) = conn.accept().await {
-            let (req, mut respond) = match res {
+            let (req, respond) = match res {
                 Ok(v) => v,
                 Err(e) => {
                     log_tag!(trace, "XH2", "accept failed / connection closed: {e:#}");
@@ -114,206 +253,256 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
                 req_host(&req)
             );
 
-            match req.method() {
-                &Method::GET => {
-                    let host_ok =
-                        req_host(&req).is_some_and(|h| h.eq_ignore_ascii_case(&authority));
-                    if req.uri().path() != path || !host_ok {
-                        log_tag!(
-                            trace,
-                            "XH2",
-                            "rejecting request for path '{}' host {:?} method {}",
-                            req.uri().path(),
-                            req_host(&req),
-                            req.method()
-                        );
-                        let Ok(r) =
-                            build_reject_response(&headers, reject_body.as_deref())
-                        else {
-                            continue;
-                        };
-                        let _ = match reject_body.as_deref() {
-                            Some(body) => {
-                                let Ok(mut stream) = respond.send_response(r, false) else {
-                                    continue;
-                                };
-                                stream.send_data(Bytes::copy_from_slice(body), true)
-                            }
-                            None => respond.send_response(r, true).map(|_| ()),
-                        };
-                        continue;
-                    }
-                    let sid = req
-                        .headers()
-                        .get(get_header.as_str())
-                        .and_then(|v| v.to_str().ok())
-                        .filter(|s| s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit()));
+            let is_get = req.method() == Method::GET;
+            if !is_get && req.method() != method {
+                method_not_allowed(req.method(), respond);
+                continue;
+            }
 
-                    let Some(sid) = sid else {
-                        log_tag!(
-                            trace,
-                            "XH2",
-                            "missing/invalid sid header on {} request",
-                            req.method()
-                        );
-                        let Ok(r) =
-                            build_reject_response(&headers, reject_body.as_deref())
-                        else {
-                            continue;
-                        };
-                        let _ = match reject_body.as_deref() {
-                            Some(body) => {
-                                let Ok(mut stream) = respond.send_response(r, false) else {
-                                    continue;
-                                };
-                                stream.send_data(Bytes::copy_from_slice(body), true)
-                            }
-                            None => respond.send_response(r, true).map(|_| ()),
-                        };
-                        continue;
-                    };
+            let header = if is_get { &get_header } else { &post_header };
+            let Some(sid) = route_sid(&req, &path, &authority, header) else {
+                reject(&cfg, respond);
+                continue;
+            };
 
-                    let mut guard = pair.lock().await;
+            let keep_going = if is_get {
+                on_get(respond, sid, &cfg, &pair, &tx).await
+            } else {
+                on_post(req, respond, sid, &cfg, &method, &pair, &tx).await
+            };
 
-                    match guard.remove(sid) {
-                        Some(Pair::Read(post_res)) => {
-                            log_tag!(trace, "XH2", "paired stream (GET arrived second)");
-
-                            let Ok(r) = build_response(&headers, &Method::GET, sid) else {
-                                continue;
-                            };
-                            let Ok(r2) = build_response(&headers, &method, sid) else {
-                                continue;
-                            };
-
-                            let Ok(send_stream) = respond.send_response(r, false) else {
-                                continue;
-                            };
-                            let (req, mut post_resp) = post_res;
-                            let _ = post_resp.send_response(r2, true);
-
-                            let stream: BoxedStream =
-                                Box::pin(ChunkStream::new(XH2Rx::Body(req), XH2Tx(send_stream)));
-
-                            drop(guard);
-                            if tx.send(stream).await.is_err() {
-                                break;
-                            }
-                        }
-                        _ => {
-                            log_tag!(trace, "XH2", "parked GET half, waiting for POST");
-                            guard.insert(sid.to_string(), Pair::Write((req.into_body(), respond)));
-                            continue;
-                        }
-                    }
-                }
-                m if m == &method => {
-                    let host_ok =
-                        req_host(&req).is_some_and(|h| h.eq_ignore_ascii_case(&authority));
-                    if req.uri().path() != path || !host_ok {
-                        log_tag!(
-                            trace,
-                            "XH2",
-                            "rejecting request for path '{}' host {:?} method {}",
-                            req.uri().path(),
-                            req_host(&req),
-                            req.method()
-                        );
-                        let Ok(r) =
-                            build_reject_response(&headers, reject_body.as_deref())
-                        else {
-                            continue;
-                        };
-                        let _ = match reject_body.as_deref() {
-                            Some(body) => {
-                                let Ok(mut stream) = respond.send_response(r, false) else {
-                                    continue;
-                                };
-                                stream.send_data(Bytes::copy_from_slice(body), true)
-                            }
-                            None => respond.send_response(r, true).map(|_| ()),
-                        };
-                        continue;
-                    }
-
-                    let sid = req
-                        .headers()
-                        .get(post_header.as_str())
-                        .and_then(|v| v.to_str().ok())
-                        .filter(|s| s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit()));
-
-                    let Some(sid) = sid else {
-                        log_tag!(
-                            trace,
-                            "XH2",
-                            "missing/invalid sid header on {} request",
-                            req.method()
-                        );
-                        let Ok(r) =
-                            build_reject_response(&headers, reject_body.as_deref())
-                        else {
-                            continue;
-                        };
-                        let _ = match reject_body.as_deref() {
-                            Some(body) => {
-                                let Ok(mut stream) = respond.send_response(r, false) else {
-                                    continue;
-                                };
-                                stream.send_data(Bytes::copy_from_slice(body), true)
-                            }
-                            None => respond.send_response(r, true).map(|_| ()),
-                        };
-                        continue;
-                    };
-
-                    let mut guard = pair.lock().await;
-
-                    match guard.remove(sid) {
-                        Some(Pair::Write(get_respond)) => {
-                            log_tag!(trace, "XH2", "paired stream (POST arrived second)");
-
-                            let Ok(r) = build_response(&headers, &Method::GET, sid) else {
-                                continue;
-                            };
-
-                            let (_, mut getrespond) = get_respond;
-
-                            let Ok(send_stream) = getrespond.send_response(r, false) else {
-                                continue;
-                            };
-
-                            let Ok(get_ok) = build_response(&headers, &method, sid) else {
-                                continue;
-                            };
-
-                            let _ = respond.send_response(get_ok, true);
-
-                            let stream: BoxedStream = Box::pin(ChunkStream::new(
-                                XH2Rx::Body(req.into_body()),
-                                XH2Tx(send_stream),
-                            ));
-
-                            drop(guard);
-                            if tx.send(stream).await.is_err() {
-                                break;
-                            }
-                        }
-                        _ => {
-                            log_tag!(trace, "XH2", "parked POST half, waiting for GET");
-                            guard.insert(sid.to_string(), Pair::Read((req.into_body(), respond)));
-                            continue;
-                        }
-                    }
-                }
-                _ => {
-                    log_tag!(trace, "XH2", "unexpected method {}", req.method());
-                    let r = Response::builder().status(404).body(()).unwrap();
-                    let _ = respond.send_response(r, true);
-                    continue;
-                }
+            if !keep_going {
+                break;
             }
         }
     });
 
     Ok(Box::new(Channel(rx)))
+}
+
+struct Session {
+    reorder: Mutex<Reorder>,
+    out_tx: mpsc::Sender<Bytes>,
+    out_rx: Mutex<Option<mpsc::Receiver<Bytes>>>,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel(64);
+        Self {
+            reorder: Mutex::new(Reorder::new()),
+            out_tx: tx,
+            out_rx: Mutex::new(Some(rx)),
+        }
+    }
+}
+
+fn session_cache() -> &'static DashMap<String, Arc<Session>> {
+    static CACHE: OnceLock<DashMap<String, Arc<Session>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn get_or_gen_session(sid: &String) -> Arc<Session> {
+    session_cache()
+        .entry(sid.to_owned())
+        .or_insert_with(|| Arc::new(Session::new()))
+        .value()
+        .clone()
+}
+
+fn find_seq_header(cfg: &Xhttp2Config, method: &Method) -> Result<String> {
+    cfg.apply_http_headers(method, &HeaderMap::new())?
+        .into_iter()
+        .find(|(_, v)| v == "seq")
+        .map(|(k, _)| k.as_str().to_owned())
+        .ok_or(anyhow!("XH2 requires an seq header"))
+}
+
+async fn packet_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
+    log_tag!(
+        trace,
+        "XH2",
+        "Starting XHTTP/2 server for path {} method {}",
+        h2.path,
+        h2.method
+    );
+    let mut builder = http2::server::Builder::new();
+    builder
+        .max_concurrent_streams(128)
+        .initial_window_size(1 << 20)
+        .initial_connection_window_size(4 << 20);
+    let cfg = get_xhttp2(&h2.profile.as_deref().expect("checked at build"))?;
+
+    let mut conn = builder
+        .handshake::<_, Bytes>(plain)
+        .await
+        .map_err(|e| anyhow!("XH2 handshake failed: {e}"))?;
+
+    let (tx, rx) = mpsc::channel(64);
+    let (method, path, authority) = (h2.method.clone(), h2.path.clone(), h2.authority.clone());
+    log_tag!(debug, "XH2", "XHTTP/2 listener ready");
+
+    let post_header = find_id_header(&cfg, &h2.method)?;
+    let get_header = find_id_header(&cfg, &Method::GET)?;
+    let seq_header = find_seq_header(&cfg, &h2.method)?;
+
+    tokio::spawn(async move {
+        while let Some(res) = conn.accept().await {
+            let (req, respond) = match res {
+                Ok(v) => v,
+                Err(e) => {
+                    log_tag!(trace, "XH2", "accept failed / connection closed: {e:#}");
+                    break;
+                }
+            };
+            log_tag!(
+                trace,
+                "XH2",
+                "accept stream: method {} path '{}' host {:?}",
+                req.method(),
+                req.uri().path(),
+                req_host(&req)
+            );
+
+            let is_get = req.method() == Method::GET;
+            if !is_get && req.method() != method {
+                method_not_allowed(req.method(), respond);
+                continue;
+            }
+
+            let header = if is_get { &get_header } else { &post_header };
+            let Some(sid) = route_sid(&req, &path, &authority, header) else {
+                reject(&cfg, respond);
+                continue;
+            };
+            let session = get_or_gen_session(&sid);
+
+            if is_get {
+                let cfg = cfg.clone();
+                let tx = tx.clone();
+                tokio::spawn(async move { get_handle(session, sid, respond, cfg, tx).await });
+            } else {
+                let method = method.clone();
+                let cfg = cfg.clone();
+                let seq_header = seq_header.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = post_handle(
+                        session,
+                        sid,
+                        req,
+                        respond,
+                        cfg,
+                        seq_header.as_str(),
+                        &method,
+                    )
+                    .await
+                    {
+                        log_tag!(debug, "XH2", "Err post handle {e}")
+                    }
+                });
+            };
+        }
+    });
+
+    Ok(Box::new(Channel(rx)))
+}
+
+pub struct XH2RxPacketUp(mpsc::Receiver<Bytes>);
+
+impl ChunkRx for XH2RxPacketUp {
+    fn poll_chunk(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Option<Bytes>>> {
+        match self.0.poll_recv(cx) {
+            Poll::Ready(Some(bytes)) => Poll::Ready(Ok(Some(bytes))),
+            Poll::Ready(None) => Poll::Ready(Ok(None)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+async fn get_handle(
+    session: Arc<Session>,
+    sid: String,
+    mut respond: http2::server::SendResponse<Bytes>,
+    cfg: Arc<Xhttp2Config>,
+    out: mpsc::Sender<BoxedStream>,
+) {
+    let Some(rx) = session.out_rx.lock().await.take() else {
+        reject(&cfg, respond);
+        return;
+    };
+    let Ok(r) = build_response(&*cfg, &Method::GET, &sid) else {
+        return;
+    };
+    let Ok(send_stream) = respond.send_response(r, false) else {
+        return;
+    };
+
+    let stream: BoxedStream = Box::pin(ChunkStream::new(XH2RxPacketUp(rx), XH2Tx(send_stream)));
+
+    deliver(&out, stream).await;
+}
+
+async fn post_handle(
+    session: Arc<Session>,
+    sid: String,
+    req: Request<RecvStream>,
+    mut respond: http2::server::SendResponse<Bytes>,
+    cfg: Arc<Xhttp2Config>,
+    seq: &str,
+    method: &Method,
+) -> Result<()> {
+    let seq = req
+        .headers()
+        .get(seq)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok());
+    let Some(seq) = seq else {
+        reject(&cfg, respond);
+        return Err(anyhow!("Reject ,dont have seq hdr"));
+    };
+
+    let mut body = req.into_body();
+    let mut buf = BytesMut::new();
+    while let Some(chunk) = body.data().await {
+        let chunk = chunk?;
+        body.flow_control().release_capacity(chunk.len())?;
+        if buf.len() + chunk.len() > MAX_BODY {
+            reject(&cfg, respond);
+            return Err(anyhow!("Reject buf overflow"));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+
+    let buf = buf.freeze();
+    let mut guard = session.reorder.lock().await;
+    let vec = match guard.push(seq, buf) {
+        Ok(v) => v,
+        Err(_) => {
+            drop(guard);
+            session_cache().remove(&sid);
+            reject(&cfg, respond);
+            return Err(anyhow!("Reject, invalid seq"));
+        }
+    };
+
+    for chunk in vec {
+        if chunk.is_empty() {
+            session_cache().remove(&sid);
+            break;
+        }
+        if session.out_tx.send(chunk).await.is_err() {
+            session_cache().remove(&sid);
+            break;
+        }
+    }
+    drop(guard);
+
+    let Ok(r) = build_response(&*cfg, method, &sid) else {
+        return Err(anyhow!("failed to build"));
+    };
+    let Ok(_) = respond.send_response(r, true) else {
+        return Err(anyhow!("failed to send"));
+    };
+
+    Ok(())
 }
