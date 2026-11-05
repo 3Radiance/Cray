@@ -101,7 +101,7 @@ pub fn get_http2_for_alps(profile_path: &str) -> Result<Arc<Http2Config>> {
             Err(x_err) => {
                 return Err(anyhow::anyhow!(
                     "profile '{profile_path}' is not a valid http2 or xhttp2 profile\n  http2: {plain_err:#}\n  xhttp2: {x_err:#}"
-                ))
+                ));
             }
         },
     };

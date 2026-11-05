@@ -2,7 +2,9 @@ use crate::fingerprint::tls::{
     builder::{set_alpn_select_callback, set_alps},
     cert::CertPair,
 };
-use crate::profiles::{get_http2_for_alps, get_or_build_tls_connector, get_or_load_tls_acceptor, get_tls};
+use crate::profiles::{
+    get_http2_for_alps, get_or_build_tls_connector, get_or_load_tls_acceptor, get_tls,
+};
 use anyhow::{Context, Result, anyhow, bail};
 use btls::ssl::{NameType, SniError, Ssl, SslAcceptor, SslContext, SslMethod};
 use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Input, Layer, Output, Ports, Side, log_tag};

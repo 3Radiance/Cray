@@ -286,8 +286,8 @@ impl Http2Config {
 
 use super::http2::H2HeadersPriority as PlainHeadersPriority;
 use super::http2::H2PriorityFrame as PlainPriorityFrame;
-use super::http2::Http2Config as PlainConfig;
 use super::http2::HeadersCfg as PlainHeadersCfg;
+use super::http2::Http2Config as PlainConfig;
 use super::http2::RejectCfg as PlainRejectCfg;
 use super::http2::Settings as PlainSettings;
 

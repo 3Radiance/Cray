@@ -125,7 +125,9 @@ fn engine_build(cfg_text: &str) -> Result<(), String> {
         let cfg = AppConfig::parse(cfg_text).map_err(|e| format!("{e:#}"))?;
         let mut reg = Registry::new();
         cray_layers::register(&mut reg);
-        Engine::build(&cfg, &reg).map(|_| ()).map_err(|e| format!("{e:#}"))
+        Engine::build(&cfg, &reg)
+            .map(|_| ())
+            .map_err(|e| format!("{e:#}"))
     }));
     match res {
         Ok(r) => r,
@@ -185,27 +187,72 @@ fn shipped_example_client_config_is_accepted() {
 #[test]
 fn tls_bad_values_are_named() {
     let cases: &[(&str, &str, &str, &str)] = &[
-        ("unknown cipher", "cipher_suites", r#""TLS_AES_128_GCM_SHA256\nNOT-A-CIPHER""#, "NOT-A-CIPHER"),
+        (
+            "unknown cipher",
+            "cipher_suites",
+            r#""TLS_AES_128_GCM_SHA256\nNOT-A-CIPHER""#,
+            "NOT-A-CIPHER",
+        ),
         ("unknown curve", "curves", r#""X25519\nP-999""#, "P-999"),
-        ("unknown sigalg", "signature_algorithms", r#""rsa_pss_rsae_sha256\nrsa_foo_sha1""#, "rsa_foo_sha1"),
-        ("unknown extension", "extensions_order", r#""server_name\nnope_ext""#, "nope_ext"),
-        ("unknown cert compression", "cert_compression", r#"["brotli", "lz4"]"#, "lz4"),
-        ("bad delegated credential", "delegated_credentials", r#""ecdsa_foo""#, "ecdsa_foo"),
-        ("record_size_limit overflow", "record_size_limit", "70000", "record_size_limit"),
+        (
+            "unknown sigalg",
+            "signature_algorithms",
+            r#""rsa_pss_rsae_sha256\nrsa_foo_sha1""#,
+            "rsa_foo_sha1",
+        ),
+        (
+            "unknown extension",
+            "extensions_order",
+            r#""server_name\nnope_ext""#,
+            "nope_ext",
+        ),
+        (
+            "unknown cert compression",
+            "cert_compression",
+            r#"["brotli", "lz4"]"#,
+            "lz4",
+        ),
+        (
+            "bad delegated credential",
+            "delegated_credentials",
+            r#""ecdsa_foo""#,
+            "ecdsa_foo",
+        ),
+        (
+            "record_size_limit overflow",
+            "record_size_limit",
+            "70000",
+            "record_size_limit",
+        ),
         ("wrong type", "cipher_suites", "5", "cipher_suites"),
-        ("only tls1.3 suites", "cipher_suites", r#"["TLS_AES_128_GCM_SHA256"]"#, "cipher_suites"),
-        ("typo in key", "cipher_suits", r#""TLS_AES_128_GCM_SHA256""#, "cipher_suits"),
+        (
+            "only tls1.3 suites",
+            "cipher_suites",
+            r#"["TLS_AES_128_GCM_SHA256"]"#,
+            "cipher_suites",
+        ),
+        (
+            "typo in key",
+            "cipher_suits",
+            r#""TLS_AES_128_GCM_SHA256""#,
+            "cipher_suits",
+        ),
     ];
     let mut failed = Vec::new();
     for (case, key, val, must_name) in cases {
         let mut p = tls_ok();
         p.insert(key, (*val).into());
         let r = build_client(&render(&p), &h2_ok());
-        if std::panic::catch_unwind(AssertUnwindSafe(|| expect_rejected(case, r, must_name))).is_err() {
+        if std::panic::catch_unwind(AssertUnwindSafe(|| expect_rejected(case, r, must_name)))
+            .is_err()
+        {
             failed.push(*case);
         }
     }
-    assert!(failed.is_empty(), "cases not rejected with a clear error: {failed:?}");
+    assert!(
+        failed.is_empty(),
+        "cases not rejected with a clear error: {failed:?}"
+    );
 }
 
 #[test]
@@ -322,22 +369,63 @@ fn plain_http2_profile_rejects_xhttp2_sections() {
 #[test]
 fn http2_bad_values_are_named() {
     let cases: Vec<(&str, String, &str)> = vec![
-        ("unknown pseudo header", h2_ok().replace(r#"":path"]"#, r#"":foo"]"#), ":foo"),
-        ("unknown setting in order", h2_ok().replace(r#""max_frame_size"]"#, r#""bogus_setting"]"#), "bogus_setting"),
-        ("max_frame_size below 16384", h2_with_setting("max_frame_size", "100"), "max_frame_size"),
-        ("max_frame_size above 2^24-1", h2_with_setting("max_frame_size", "16777216"), "max_frame_size"),
-        ("initial_window_size above 2^31-1", h2_with_setting("initial_window_size", "4294967295"), "initial_window_size"),
-        ("even initial_stream_id", h2_with_top("initial_stream_id = 2"), "initial_stream_id"),
-        ("invalid header name", h2_ok().replace(r#""user-agent"]"#, r#""bad header"]"#), "bad header"),
-        ("invalid header value", h2_ok().replace(r#""user-agent" = "test""#, "\"user-agent\" = \"a\\nb\""), "user-agent"),
-        ("typo in key", h2_with_top("settngs_order = []"), "settngs_order"),
+        (
+            "unknown pseudo header",
+            h2_ok().replace(r#"":path"]"#, r#"":foo"]"#),
+            ":foo",
+        ),
+        (
+            "unknown setting in order",
+            h2_ok().replace(r#""max_frame_size"]"#, r#""bogus_setting"]"#),
+            "bogus_setting",
+        ),
+        (
+            "max_frame_size below 16384",
+            h2_with_setting("max_frame_size", "100"),
+            "max_frame_size",
+        ),
+        (
+            "max_frame_size above 2^24-1",
+            h2_with_setting("max_frame_size", "16777216"),
+            "max_frame_size",
+        ),
+        (
+            "initial_window_size above 2^31-1",
+            h2_with_setting("initial_window_size", "4294967295"),
+            "initial_window_size",
+        ),
+        (
+            "even initial_stream_id",
+            h2_with_top("initial_stream_id = 2"),
+            "initial_stream_id",
+        ),
+        (
+            "invalid header name",
+            h2_ok().replace(r#""user-agent"]"#, r#""bad header"]"#),
+            "bad header",
+        ),
+        (
+            "invalid header value",
+            h2_ok().replace(r#""user-agent" = "test""#, "\"user-agent\" = \"a\\nb\""),
+            "user-agent",
+        ),
+        (
+            "typo in key",
+            h2_with_top("settngs_order = []"),
+            "settngs_order",
+        ),
     ];
     let mut failed = Vec::new();
     for (case, profile, must_name) in &cases {
         let r = build_client(&render(&tls_ok()), profile);
-        if std::panic::catch_unwind(AssertUnwindSafe(|| expect_rejected(case, r, must_name))).is_err() {
+        if std::panic::catch_unwind(AssertUnwindSafe(|| expect_rejected(case, r, must_name)))
+            .is_err()
+        {
             failed.push(*case);
         }
     }
-    assert!(failed.is_empty(), "cases not rejected with a clear error: {failed:?}");
+    assert!(
+        failed.is_empty(),
+        "cases not rejected with a clear error: {failed:?}"
+    );
 }

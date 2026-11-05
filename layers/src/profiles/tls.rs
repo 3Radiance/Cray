@@ -34,8 +34,8 @@ impl TlsConfig {
     pub fn load(path: &str) -> Result<Self> {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("cannot read tls profile '{path}'"))?;
-        let config: TlsConfig = toml::from_str(&contents)
-            .with_context(|| format!("invalid tls profile '{path}'"))?;
+        let config: TlsConfig =
+            toml::from_str(&contents).with_context(|| format!("invalid tls profile '{path}'"))?;
         Ok(config)
     }
 
@@ -73,7 +73,7 @@ impl TlsConfig {
                         "padding" => Ok(ExtensionType::PADDING),
                         "signed_certificate_timestamp" | "certificate_timestamp" => {
                             Ok(ExtensionType::CERTIFICATE_TIMESTAMP)
-                        },
+                        }
                         "extended_master_secret" => Ok(ExtensionType::EXTENDED_MASTER_SECRET),
                         "session_ticket" => Ok(ExtensionType::SESSION_TICKET),
                         "supported_versions" => Ok(ExtensionType::SUPPORTED_VERSIONS),

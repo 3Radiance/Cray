@@ -57,7 +57,10 @@ pub fn xhttp2_builder(path: &str) -> Result<http2::client::Builder> {
     Ok(builder)
 }
 
-pub fn set_settings_frame(builder: &mut http2::client::Builder, config: &Xhttp2Config) -> Result<()> {
+pub fn set_settings_frame(
+    builder: &mut http2::client::Builder,
+    config: &Xhttp2Config,
+) -> Result<()> {
     if let Some(settings) = &config.settings {
         if let Some(v) = settings.header_table_size {
             builder.header_table_size(v as u32);

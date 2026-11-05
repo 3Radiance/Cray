@@ -154,7 +154,10 @@ async fn server_handshake(plain: BoxedStream, h2: &H2) -> Result<BoxedIncoming> 
         Some(p) => Some(get_http2(p)?),
         None => None,
     };
-    let reject_status = headers.as_ref().and_then(|c| c.reject_status).unwrap_or(404);
+    let reject_status = headers
+        .as_ref()
+        .and_then(|c| c.reject_status)
+        .unwrap_or(404);
     let reject_body = headers.as_ref().and_then(|c| c.reject_body.clone());
 
     let (tx, rx) = mpsc::channel(64);
@@ -169,9 +172,11 @@ async fn server_handshake(plain: BoxedStream, h2: &H2) -> Result<BoxedIncoming> 
                 || req.uri().path() != path
                 || req.uri().host().map_or(true, |h| h != authority)
             {
-                let Ok(r) =
-                    build_reject_response(headers.as_deref(), reject_status, reject_body.as_deref())
-                else {
+                let Ok(r) = build_reject_response(
+                    headers.as_deref(),
+                    reject_status,
+                    reject_body.as_deref(),
+                ) else {
                     continue;
                 };
                 let _ = match reject_body.as_deref() {
@@ -242,8 +247,7 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         let Some(profile) = cfg.config.as_deref() else {
             bail!("http2 outbound requires 'config' (profile path)");
         };
-        get_or_build_http2(profile)
-            .map_err(|e| anyhow!("http2 profile '{profile}': {e:#}"))?;
+        get_or_build_http2(profile).map_err(|e| anyhow!("http2 profile '{profile}': {e:#}"))?;
     }
 
     let method: http::Method = method

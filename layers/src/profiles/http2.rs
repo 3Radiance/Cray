@@ -87,17 +87,17 @@ impl Http2Config {
     pub fn load(path: &str) -> Result<Self> {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("cannot read http2 profile '{path}'"))?;
-        let mut config: Http2Config = toml::from_str(&contents)
-            .with_context(|| format!("invalid http2 profile '{path}'"))?;
+        let mut config: Http2Config =
+            toml::from_str(&contents).with_context(|| format!("invalid http2 profile '{path}'"))?;
         if let Some(status) = config.reject_status {
             http::StatusCode::from_u16(status)
                 .map_err(|e| anyhow::anyhow!("[H2] invalid reject_status {status}: {e}"))?;
         }
         if let Some(body_path) = config.reject.as_ref().and_then(|r| r.body_path.as_ref()) {
-            config.reject_body = Some(
-                std::fs::read(body_path)
-                    .map_err(|e| anyhow::anyhow!("[H2] cannot read reject body '{body_path}': {e}"))?,
-            );
+            config.reject_body =
+                Some(std::fs::read(body_path).map_err(|e| {
+                    anyhow::anyhow!("[H2] cannot read reject body '{body_path}': {e}")
+                })?);
         }
         Ok(config)
     }
