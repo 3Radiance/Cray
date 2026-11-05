@@ -92,18 +92,14 @@ method = "{method}"
 async fn read_body(mut body: http2::RecvStream) -> Vec<u8> {
     let mut out = Vec::new();
     loop {
-        let done = std::future::poll_fn(|cx| {
-            loop {
-                match body.poll_data(cx) {
-                    std::task::Poll::Pending => return std::task::Poll::Pending,
-                    std::task::Poll::Ready(None) => return std::task::Poll::Ready(true),
-                    std::task::Poll::Ready(Some(Err(_))) => return std::task::Poll::Ready(true),
-                    std::task::Poll::Ready(Some(Ok(chunk))) => {
-                        let _ = body.flow_control().release_capacity(chunk.len());
-                        out.extend_from_slice(&chunk);
-                        return std::task::Poll::Ready(false);
-                    }
-                }
+        let done = std::future::poll_fn(|cx| match body.poll_data(cx) {
+            std::task::Poll::Pending => return std::task::Poll::Pending,
+            std::task::Poll::Ready(None) => return std::task::Poll::Ready(true),
+            std::task::Poll::Ready(Some(Err(_))) => return std::task::Poll::Ready(true),
+            std::task::Poll::Ready(Some(Ok(chunk))) => {
+                let _ = body.flow_control().release_capacity(chunk.len());
+                out.extend_from_slice(&chunk);
+                return std::task::Poll::Ready(false);
             }
         })
         .await;
