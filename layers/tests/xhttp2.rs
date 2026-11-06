@@ -895,19 +895,94 @@ async fn test_xhttp2_packet_up_server_reorders_raw_posts() {
         );
     }
 
+    // duplicate of an already delivered seq: acknowledged and dropped, the
+    // session stays alive (the client may have retried a POST)
     let dup = send_post(&mut sr, &sid, 1, b"zz");
-    if let Ok(resp) = within("duplicate", dup).await {
-        assert_ne!(
-            resp.status().as_u16(),
-            200,
-            "duplicate seq must be rejected"
-        )
-    }
-    let mut one = [0u8; 1];
-    let n = within("EOF after bad seq", server_stream.read(&mut one))
+    let resp = within("duplicate", dup).await.expect("duplicate response");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "duplicate seq must be acknowledged, not rejected"
+    );
+    assert!(
+        within("duplicate body", body_ends_cleanly(resp.into_body())).await,
+        "duplicate: response stream was reset instead of closed"
+    );
+
+    // the stream goes on in order and the duplicate payload never shows up
+    let next = send_post(&mut sr, &sid, 3, b"dd");
+    let mut tail = [0u8; 2];
+    within("read after duplicate", server_stream.read_exact(&mut tail))
         .await
-        .expect("read after reject");
-    assert_eq!(n, 0, "session must be closed after a bad seq");
+        .expect("read after duplicate");
+    assert_eq!(&tail, b"dd", "duplicate payload must not be delivered");
+    let resp = within("seq 3", next).await.expect("POST response");
+    assert_eq!(resp.status().as_u16(), 200);
+}
+
+/// A rejected request (a reset stream counts too) must not be acknowledged.
+async fn assert_rejected(what: &str, resp: http2::client::ResponseFuture) {
+    if let Ok(r) = within(what, resp).await {
+        assert_ne!(r.status().as_u16(), 200, "{what} must be rejected");
+    }
+}
+
+/// Only the server: malformed POSTs are rejected, the session survives them.
+#[tokio::test]
+async fn test_xhttp2_packet_up_server_rejects_malformed_posts() {
+    use cray_layers::transport::xhttp2::client::MAX_BODY;
+
+    init_tracing();
+    let profile = make_packet_profile("pu-server-malformed");
+    let (client_wire, server_wire) = duplex(1 << 20);
+    let server = spawn_server_handshake(packet_layer(&profile, Side::Inbound), server_wire);
+    let mut sr = manual_h2_client(client_wire).await;
+    let mut incoming = within("server handshake", server).await.unwrap();
+    let sid = "d".repeat(32);
+
+    let (_get_resp, _get_body) = sr
+        .send_request(raw_req("GET", &sid, None), true)
+        .expect("send GET");
+    let mut server_stream = within("accept", incoming.accept())
+        .await
+        .expect("accept returned None");
+
+    // no seq header at all
+    let (resp, mut stream) = sr
+        .send_request(raw_req("POST", &sid, None), false)
+        .expect("send POST");
+    stream
+        .send_data(Bytes::from_static(b"xx"), true)
+        .expect("send body");
+    assert_rejected("missing seq", resp).await;
+
+    // seq is not a number
+    let req = Request::builder()
+        .method("POST")
+        .uri("https://127.0.0.1/split-http")
+        .header("x-session-id", sid.as_str())
+        .header("x-packet-seq", "not-a-number")
+        .body(())
+        .unwrap();
+    let (resp, mut stream) = sr.send_request(req, false).expect("send POST");
+    stream
+        .send_data(Bytes::from_static(b"yy"), true)
+        .expect("send body");
+    assert_rejected("non-numeric seq", resp).await;
+
+    // body larger than MAX_BODY
+    let resp = send_post(&mut sr, &sid, 0, &[7u8; MAX_BODY + 1]);
+    assert_rejected("oversized body", resp).await;
+
+    // none of the above consumed seq 0 or leaked bytes: the session is intact
+    let ok = send_post(&mut sr, &sid, 0, b"ok");
+    let mut buf = [0u8; 2];
+    within("read after rejects", server_stream.read_exact(&mut buf))
+        .await
+        .expect("read after rejects");
+    assert_eq!(&buf, b"ok", "rejected requests must not reach the stream");
+    let resp = within("valid POST", ok).await.expect("POST response");
+    assert_eq!(resp.status().as_u16(), 200);
 }
 
 #[tokio::test]

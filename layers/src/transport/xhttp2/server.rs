@@ -508,7 +508,6 @@ async fn post_handle(
             return Err(anyhow!("Reject, invalid seq"));
         }
     };
-
     for chunk in vec {
         if chunk.is_empty() {
             session_cache().remove(&sid);

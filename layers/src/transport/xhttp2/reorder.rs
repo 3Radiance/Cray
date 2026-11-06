@@ -45,9 +45,3 @@ impl Reorder {
         }
     }
 }
-
-impl Default for Reorder {
-    fn default() -> Self {
-        Self::new()
-    }
-}

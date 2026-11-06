@@ -33,14 +33,14 @@ mod tests {
     }
 
     #[test]
-    fn old_seq_is_error() {
+    fn old_seq_is_ignored() {
         let mut r = Reorder::new();
         r.push(0, b(0)).unwrap();
         assert_eq!(r.push(0, b(0)), Ok(vec![]));
     }
 
     #[test]
-    fn duplicate_in_pending_is_error() {
+    fn duplicate_in_pending_is_ignored() {
         let mut r = Reorder::new();
         r.push(2, b(2)).unwrap();
         assert_eq!(r.push(2, b(9)), Ok(vec![]));
@@ -65,11 +65,36 @@ mod tests {
     }
 
     #[test]
-    fn rejected_duplicate_keeps_original() {
+    fn duplicate_keeps_original() {
         let mut r = Reorder::new();
         r.push(2, b(2)).unwrap();
         assert_eq!(r.push(2, b(9)), Ok(vec![]));
         r.push(0, b(0)).unwrap();
         assert_eq!(r.push(1, b(1)), Ok(vec![b(1), b(2)]));
+    }
+
+    #[test]
+    fn ignored_duplicate_does_not_disturb_the_stream() {
+        let mut r = Reorder::new();
+        assert_eq!(r.push(0, b(0)), Ok(vec![b(0)]));
+        assert_eq!(r.push(0, b(9)), Ok(vec![])); // already delivered
+        assert_eq!(r.push(1, b(1)), Ok(vec![b(1)]));
+    }
+
+    #[test]
+    fn duplicate_of_a_packet_released_from_pending_is_ignored() {
+        let mut r = Reorder::new();
+        assert_eq!(r.push(1, b(1)), Ok(vec![]));
+        assert_eq!(r.push(0, b(0)), Ok(vec![b(0), b(1)]));
+        assert_eq!(r.push(1, b(9)), Ok(vec![])); // was delivered from pending
+        assert_eq!(r.push(2, b(2)), Ok(vec![b(2)]));
+    }
+
+    #[test]
+    fn empty_chunk_is_ordered_like_data() {
+        // FIN is an empty chunk with the next seq: it must not overtake data
+        let mut r = Reorder::new();
+        assert_eq!(r.push(1, Bytes::new()), Ok(vec![]));
+        assert_eq!(r.push(0, b(0)), Ok(vec![b(0), Bytes::new()]));
     }
 }
