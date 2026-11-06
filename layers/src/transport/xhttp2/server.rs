@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::task::{Context, Poll};
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::{Duration, Instant, interval};
 
 fn build_response(cfg: &Xhttp2Config, method: &Method, sid: &str) -> anyhow::Result<Response<()>> {
     let mut b = Response::builder().status(200);
@@ -304,10 +305,11 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
     Ok(Box::new(Channel(rx)))
 }
 
-struct Session {
+pub struct Session {
     reorder: Mutex<Reorder>,
     out_tx: mpsc::Sender<Bytes>,
     out_rx: Mutex<Option<mpsc::Receiver<Bytes>>>,
+    pub last_used: Mutex<Instant>,
 }
 
 impl Session {
@@ -317,6 +319,7 @@ impl Session {
             reorder: Mutex::new(Reorder::new()),
             out_tx: tx,
             out_rx: Mutex::new(Some(rx)),
+            last_used: Mutex::new(Instant::now()),
         }
     }
 }
@@ -464,6 +467,8 @@ async fn get_handle(
     let stream: BoxedStream = Box::pin(ChunkStream::new(XH2RxPacketUp(rx), XH2Tx(send_stream)));
 
     deliver(&out, stream).await;
+    let mut guard = session.last_used.lock().await;
+    *guard = Instant::now();
 }
 
 async fn post_handle(
@@ -527,5 +532,43 @@ async fn post_handle(
         return Err(anyhow!("failed to send"));
     };
 
+    let mut guard = session.last_used.lock().await;
+    *guard = Instant::now();
+
     Ok(())
+}
+
+pub async fn session_gc() {
+    let mut interval = interval(Duration::from_secs(15));
+    let timeout = Duration::from_secs(30);
+    let mut vec: Vec<String> = Vec::with_capacity(64);
+
+    loop {
+        interval.tick().await;
+
+        gc_iteration(&session_cache(), timeout, &mut vec).await;
+    }
+}
+
+pub async fn gc_iteration(
+    cache: &DashMap<String, Arc<Session>>,
+    timeout: Duration,
+    vec: &mut Vec<String>,
+) {
+    vec.clear();
+
+    for entry in cache.iter() {
+        let sid = entry.key();
+        let session = entry.value();
+
+        let guard = session.last_used.lock().await;
+        if guard.elapsed() > timeout {
+            vec.push(sid.clone());
+        }
+    }
+
+    for sid in vec {
+        cache.remove(sid);
+        log_tag!(debug, "XH2", "Session timeout delete {sid}")
+    }
 }
