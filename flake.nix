@@ -15,7 +15,9 @@
           overlays = [ (import rust-overlay) ];
         };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default;
+        rustToolchain = (pkgs.rust-bin.stable.latest.default.override {
+  extensions = [ "rust-src" "rust-analyzer" ];
+});
 
         proxyUrl = "http://127.0.0.1:10808";
 
@@ -30,6 +32,8 @@
             gcc
             clang
             llvmPackages.libclang
+
+            linuxPackages.perf
 
             # Build tools
             cmake

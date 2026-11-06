@@ -38,3 +38,6 @@ futures-util = { version = "0.3.34", features = ["sink", "std"] }
 
 cray-core = { path = "core" }
 cray-layers = { path = "layers" }
+
+[profile.release]
+debug = true

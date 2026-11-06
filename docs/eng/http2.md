@@ -61,9 +61,8 @@ config = "./http2.toml"
 
 | Field | outbound | inbound |
 |---|---|---|
-| `path` | required: request `:path` | required: requests must match, others get 404 |
-| `method` | required: `POST` or `PUT` | required: requests must match, others get 404 |
-| `host` | required: request `:authority` | required: requests must match, others get 404 |
+| `path` | required: request `:path` | required: requests must match, others get `reject_status` |
+| `method` | required: `POST` or `PUT` | required: requests must match, others get `reject_status` |
 | `host` | required: request `:authority` | required: requests must match, others get `reject_status` |
 | `config` | required: path to the HTTP/2 profile | optional: for `reject_status`, `[response]` and `[reject]` |
 | `timeout` | seconds (`timeout = 5`) or preset name (`timeout = "h2"`); default 5 | same; default 5 |
@@ -71,9 +70,16 @@ config = "./http2.toml"
 
 The profile is a separate file with only top-level keys (there is no `[http2]`
 header). Relative paths are resolved against the process working directory. The
-profile is loaded on the first connection and cached by path, so errors in it
-show up then and edits need a restart. Keys that are not part of the profile are
-ignored silently.
+profile is loaded once and cached by path, so edits need a restart.
+
+When it is loaded depends on the side. An outbound layer loads and validates the
+profile when the layer is built, so a broken profile stops the program at
+startup, before any connection. An inbound layer loads its optional `config` on
+the first accepted connection. Keys that are not part of the profile are an
+error: loading fails and the message names the offending key.
+
+The `xhttp2` layer reads the same format, extended with per-direction
+`[uplink]`/`[downlink]` sections (see [xhttp2.md](xhttp2.md)).
 
 `timeout` covers only the layer handshake, not the connection lifetime. A preset
 name resolves through the `[timeouts]` table at the top of the config (details
@@ -160,9 +166,9 @@ MAX_FRAME_SIZE
 MAX_HEADER_LIST_SIZE
 ```
 
-Names are case-insensitive. An unknown name fails the connection when the
-builder is created, so a typo shows up on the first `h2` connection instead of
-silently producing a wrong fingerprint.
+Names are case-insensitive. An unknown name is an error when the outbound layer
+is built, so a typo stops startup instead of silently producing a wrong
+fingerprint.
 
 ### `connection_window_update`: connection window
 
@@ -228,7 +234,7 @@ custom dependency.
 ### `pseudo_headers_order`: pseudo-header order
 
 Order of `:method`, `:path`, `:authority`, `:scheme` in the request. An unknown
-name fails the connection. Browsers differ characteristically here; Firefox
+name is an error when the outbound layer is built. Browsers differ characteristically here; Firefox
 sends `:method, :authority, :scheme, :path`:
 
 ```toml
@@ -339,18 +345,20 @@ only after reading.
 When `alps = true` in the TLS profile, the same `settings` and `settings_order` are
 re-encoded as the TLS ALPS payload for `h2` (see [tls.md](tls.md)). Browsers
 use that exact encoding, so one profile drives both places on the wire. The TLS layer finds it through
-`http2_path`; point that at the same file as `config` on the `http2` layer. Keep
+`http2_path`; point that at the same file as `config` on the `http2` layer (an `xhttp2`
+profile works too). Keep
 them in sync with the browser you imitate: a mismatch between the SETTINGS
 frame and the ALPS payload is itself a fingerprint signal.
 
 ## Gotchas
 
-- `settings_order` and `pseudo_headers_order` are validated: unknown names fail
-  the connection instead of degrading silently. Check the spelling against the
-  vocabularies above.
+- `settings_order` and `pseudo_headers_order` are validated when the outbound
+  layer is built: unknown names stop startup instead of degrading silently.
+  Check the spelling against the vocabularies above.
 - `enable_push` must be present whenever the `[settings]` table exists.
-- `settings` values outside the protocol range (for example an absurd
-  `max_frame_size`) are rejected by the HTTP/2 stack at handshake time.
+- Ranges are checked at startup: `max_frame_size` must be in 16384–16777215,
+  `initial_window_size` and `connection_window_update` must not exceed
+  2147483647, and `initial_stream_id` must be odd.
 - `initial_stream_id` colliding with `priority_frames` IDs kills the
   connection. Prefer to omit it and let it derive.
 - `http_headers` keys must be lowercase, and every header must be listed in
@@ -363,9 +371,9 @@ frame and the ALPS payload is itself a fingerprint signal.
   proxy the value is whatever the proxy forwards as `:authority`.
 - The outbound `http2` layer needs `config`. The TLS layer needs `http2_path`
   only when `alps = true`; point both at the same file.
-- Unknown keys are ignored without any warning (this includes the former
-  `end_stream_on_headers` key). If a setting seems to have no effect, check the
-  spelling of the key first.
+- Unknown keys are rejected: the profile fails to load and the error names the
+  key. This includes the former `end_stream_on_headers` key, which has to be
+  removed from old profiles.
 - To verify the result, capture the outbound's traffic (Wireshark) or log the
   JA3/JA4 and HTTP/2 fingerprint on the server side (for example in nginx),
   and compare it with a capture of the real browser you imitate.

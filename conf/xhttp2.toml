@@ -16,10 +16,13 @@ max_frame_size = 16384
 [http_headers]
 "x-session-id" = "id"
 
+# "id" is required on both legs; "seq" is required on the uplink in PacketUp mode.
+# Do not put content-type = "application/grpc" on the downlink (GET).
 [uplink.http_headers]
 "x-session-id" = "id"
 "x-seq" = "seq"
 
+# Keep the tunnel GET out of CDN caches and unbuffered.
 [downlink.response.http_headers]
 "cache-control" = "no-store"
 "content-type" = "text/event-stream"
