@@ -218,6 +218,9 @@ impl XH2TxPacketUp {
 
 impl ChunkTx for XH2TxPacketUp {
     fn poll_send(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
         match Pin::new(&mut self.sender).poll_ready(cx) {
             Poll::Ready(Ok(())) => {
                 let bytes = Bytes::copy_from_slice(buf);
@@ -241,7 +244,12 @@ impl ChunkTx for XH2TxPacketUp {
     fn poll_finish(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.sender.poll_reserve(cx) {
             Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(_)) => return Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    format!("{e}"),
+                )));
+            }
             Poll::Ready(Ok(())) => {}
         }
 

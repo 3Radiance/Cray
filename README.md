@@ -37,7 +37,7 @@ In most proxy cores the protocol is tied to a transport: a new transport means r
 
 - **Composable.** Layers combine freely. A protocol reads and writes a stream and does not care what is underneath: raw TCP, TLS or HTTP/2.
 - **Explicit.** Header names, fingerprints, response and rejection pages are values in the config and in profile files, not constants in the code.
-- **Ownership.** We don't impose network policies; how you manage flows and routing is entirely up to you.
+- **Control.** Cray provides mechanisms, not policies: which layers to chain, how traffic is shaped and what it looks like on the wire is decided in your config.
 
 ---
 

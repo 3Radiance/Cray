@@ -10,7 +10,6 @@ pub struct Reorder {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReorderError {
     InvalidSeq,
-    SeqExists,
 }
 
 impl Reorder {
@@ -34,10 +33,12 @@ impl Reorder {
         } else if seq > self.next {
             match self.pending.entry(seq) {
                 Entry::Occupied(_) => {
-                    return Err(ReorderError::SeqExists);
+                    return Ok(vec);
                 }
                 Entry::Vacant(slot) => slot.insert(buf),
             };
+            Ok(vec)
+        } else if seq < self.next {
             Ok(vec)
         } else {
             Err(ReorderError::InvalidSeq)

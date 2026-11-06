@@ -10,7 +10,6 @@ use dashmap::DashMap;
 use http::Request;
 use http::{HeaderMap, Method, Response};
 use http2::{RecvStream, server::SendResponse};
-use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -131,38 +130,44 @@ async fn deliver(tx: &mpsc::Sender<BoxedStream>, stream: BoxedStream) -> bool {
 async fn on_get(
     mut respond: SendResponse<Bytes>,
     sid: String,
-    cfg: &Xhttp2Config,
-    pair: &Mutex<HashMap<String, Pair>>,
+    cfg: Arc<Xhttp2Config>,
     tx: &mpsc::Sender<BoxedStream>,
-) -> bool {
+) {
+    let pair = get_or_gen_pair(&sid);
     let mut guard = pair.lock().await;
 
-    let Ok(r) = build_response(cfg, &Method::GET, &sid) else {
-        return true;
+    let Ok(r) = build_response(&*cfg, &Method::GET, &sid) else {
+        return;
     };
 
-    match guard.remove(&sid) {
-        Some(Pair::Post(post_body)) => {
+    let state = std::mem::replace(&mut *guard, Pair::Done);
+
+    match state {
+        Pair::Post(post_body) => {
             log_tag!(trace, "XH2", "paired stream (GET arrived second)");
 
             let Ok(send_stream) = respond.send_response(r, false) else {
-                return true;
+                return;
             };
 
             let stream: BoxedStream =
                 Box::pin(ChunkStream::new(XH2Rx::Body(post_body), XH2Tx(send_stream)));
-
             drop(guard);
-            deliver(tx, stream).await
+            let _ = deliver(tx, stream).await;
         }
-        _ => {
+        Pair::Waiting => {
             log_tag!(trace, "XH2", "parked GET half, waiting for POST");
             let Ok(send_stream) = respond.send_response(r, false) else {
-                return true;
+                return;
             };
-            guard.insert(sid, Pair::Get(send_stream));
-            true
+            *guard = Pair::Get(send_stream);
+            drop(guard);
         }
+        Pair::Get(x) => {
+            *guard = Pair::Get(x);
+            drop(guard);
+        }
+        Pair::Done => return,
     }
 }
 
@@ -170,41 +175,60 @@ async fn on_post(
     req: Request<RecvStream>,
     mut respond: SendResponse<Bytes>,
     sid: String,
-    cfg: &Xhttp2Config,
-    method: &Method,
-    pair: &Mutex<HashMap<String, Pair>>,
+    cfg: Arc<Xhttp2Config>,
+    method: Method,
     tx: &mpsc::Sender<BoxedStream>,
-) -> bool {
+) {
+    let pair = get_or_gen_pair(&sid);
     let mut guard = pair.lock().await;
-    let Ok(r) = build_response(cfg, method, &sid) else {
-        return true;
+    let Ok(r) = build_response(&*cfg, &method, &sid) else {
+        return;
     };
 
-    match guard.remove(&sid) {
-        Some(Pair::Get(send_stream)) => {
+    let state = std::mem::replace(&mut *guard, Pair::Done);
+
+    match state {
+        Pair::Get(send_stream) => {
             log_tag!(trace, "XH2", "paired stream (POST arrived second)");
 
             let Ok(_) = respond.send_response(r, false) else {
-                return true;
+                return;
             };
 
             let stream: BoxedStream = Box::pin(ChunkStream::new(
                 XH2Rx::Body(req.into_body()),
                 XH2Tx(send_stream),
             ));
-
             drop(guard);
-            deliver(tx, stream).await
+            let _ = deliver(tx, stream).await;
         }
-        _ => {
+        Pair::Waiting => {
             log_tag!(trace, "XH2", "parked POST half, waiting for GET");
             if respond.send_response(r, true).is_err() {
-                return true;
+                return;
             }
-            guard.insert(sid, Pair::Post(req.into_body()));
-            true
+            *guard = Pair::Post(req.into_body());
+            drop(guard);
         }
+        Pair::Post(x) => {
+            *guard = Pair::Post(x);
+            drop(guard);
+        }
+        Pair::Done => return,
     }
+}
+
+fn pair_cache() -> &'static DashMap<String, Arc<Mutex<Pair>>> {
+    static CACHE: OnceLock<DashMap<String, Arc<Mutex<Pair>>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn get_or_gen_pair(sid: &str) -> Arc<Mutex<Pair>> {
+    pair_cache()
+        .entry(sid.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(Pair::Waiting)))
+        .value()
+        .clone()
 }
 
 async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
@@ -231,7 +255,6 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
     let (method, path, authority) = (h2.method.clone(), h2.path.clone(), h2.authority.clone());
     log_tag!(debug, "XH2", "XHTTP/2 listener ready");
 
-    let pair = std::sync::Arc::clone(&h2.pair);
     let post_header = find_id_header(&cfg, &h2.method)?;
     let get_header = find_id_header(&cfg, &Method::GET)?;
 
@@ -265,15 +288,16 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
                 continue;
             };
 
-            let keep_going = if is_get {
-                on_get(respond, sid, &cfg, &pair, &tx).await
+            if is_get {
+                let tx = tx.clone();
+                let cfg = cfg.clone();
+                tokio::spawn(async move { on_get(respond, sid, cfg, &tx).await })
             } else {
-                on_post(req, respond, sid, &cfg, &method, &pair, &tx).await
+                let method = method.clone();
+                let tx = tx.clone();
+                let cfg = cfg.clone();
+                tokio::spawn(async move { on_post(req, respond, sid, cfg, method, &tx).await })
             };
-
-            if !keep_going {
-                break;
-            }
         }
     });
 

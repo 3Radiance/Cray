@@ -10,13 +10,11 @@ use http::{HeaderMap, Method};
 use http2::client::ResponseFuture;
 use http2::{RecvStream, SendStream};
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 pub mod client;
 pub mod reorder;
@@ -39,7 +37,6 @@ pub struct XH2 {
     path: String,
     profile: Option<String>,
     side: Side,
-    pair: Arc<Mutex<HashMap<String, Pair>>>,
     mode: Mode,
 }
 
@@ -52,6 +49,8 @@ pub enum Mode {
 pub enum Pair {
     Get(SendStream<Bytes>),
     Post(RecvStream),
+    Waiting,
+    Done,
 }
 
 fn req_host(req: &http::Request<http2::RecvStream>) -> Option<String> {
@@ -153,7 +152,6 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         path,
         profile: cfg.config,
         side: bcx.side,
-        pair: Arc::new(Mutex::new(HashMap::new())),
         mode,
     }))
 }

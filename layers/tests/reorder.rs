@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use cray_layers::transport::xhttp2::reorder::{Reorder, ReorderError};
+    use cray_layers::transport::xhttp2::reorder::Reorder;
 
     fn b(n: u8) -> Bytes {
         Bytes::from(vec![n])
@@ -36,14 +36,14 @@ mod tests {
     fn old_seq_is_error() {
         let mut r = Reorder::new();
         r.push(0, b(0)).unwrap();
-        assert_eq!(r.push(0, b(0)), Err(ReorderError::InvalidSeq));
+        assert_eq!(r.push(0, b(0)), Ok(vec![]));
     }
 
     #[test]
     fn duplicate_in_pending_is_error() {
         let mut r = Reorder::new();
         r.push(2, b(2)).unwrap();
-        assert_eq!(r.push(2, b(9)), Err(ReorderError::SeqExists));
+        assert_eq!(r.push(2, b(9)), Ok(vec![]));
     }
 
     #[test]
@@ -68,7 +68,7 @@ mod tests {
     fn rejected_duplicate_keeps_original() {
         let mut r = Reorder::new();
         r.push(2, b(2)).unwrap();
-        assert_eq!(r.push(2, b(9)), Err(ReorderError::SeqExists));
+        assert_eq!(r.push(2, b(9)), Ok(vec![]));
         r.push(0, b(0)).unwrap();
         assert_eq!(r.push(1, b(1)), Ok(vec![b(1), b(2)]));
     }
