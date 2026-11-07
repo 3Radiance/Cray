@@ -289,7 +289,7 @@ Tags: `CHAIN`, `INB`, `TCP`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTE
 - Layers `tcp`, `unix`, `http-proxy`, `tls`, `http2`, `xhttp2` and `vless`, and the `jitter`, `fragment`, `pad` and `auth` wrappers.
 - Building inbound and outbound chains from the config and validating the layer order.
 - `http2`: a profiled HTTP/2 client and a server with configurable responses and rejections; see [docs/eng/http2.md](docs/eng/http2.md).
-- `xhttp2`: upload and download split across separate HTTP/2 requests, correlated by a session-ID header of your choice. `StreamUp` streams the upload in one `POST`; `PacketUp` sends it as ordered `POST` packets and has been run through Cloudflare and nginx. See [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
+- `xhttp2`: upload and download split across separate HTTP/2 requests, correlated by a session-ID header of your choice. `StreamUp` streams the upload in one `POST`; `PacketUp` sends it as ordered `POST` packets restored by a per-session reorder buffer, and has been run through Cloudflare and nginx. Idle and never-paired sessions are expired by a background GC. See [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
 - `auth`: per-frame HMAC-SHA256 authentication; see [docs/eng/auth.md](docs/eng/auth.md).
 - `vless`: TCP command with UUID authentication.
 
@@ -298,12 +298,12 @@ Tags: `CHAIN`, `INB`, `TCP`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTE
 > ⚠️ `vless` follows the VLESS header layout only partly and is **not interoperable** with Xray, sing-box or other VLESS clients yet. Differences: domain and IPv6 address types use the SOCKS5-style codes 3 and 4 (VLESS uses 2 and 3), the server sends no response header, request addons are assumed to be empty, and only the TCP command is supported. A Cray client works with a Cray server. The UUID is the only credential, and there is no replay protection yet.
 
 - `auth` v1 carries only the tag: no replay protection yet.
-- `xhttp2` `PacketUp`: the server does not yet limit the reorder buffer or the number of sessions, and does not expire sessions that never receive their `GET`. Packets are cut at 16 KiB and every write becomes its own request (no coalescing yet).
+- `xhttp2` `PacketUp`: the server does not yet limit the reorder buffer or the number of sessions. Idle and never-paired sessions are expired by the server GC. Every write goes out as its own request immediately — write-through by design, no write buffering.
 - TLS and HTTP/2 presets are not available, fingerprints are set by hand.
 
 ### Roadmap
 
-1. `xhttp2` hardening: limits for the reorder buffer and the session table, expiry of incomplete sessions, coalescing of small writes in `PacketUp`.
+1. `xhttp2` hardening: limits for the reorder buffer and the session table.
 2. Full VLESS wire compatibility (see the warning above), UDP and Mux commands, and replay protection (nonce cache).
 3. `auth`: replay protection (nonce cache and a masked timestamp, still no handshake) and an AEAD record mode (`[nonce:16 | ts':8 | len:2 | AEAD(payload)]`).
 4. Two-level verification: level 1 on the nginx side (HMAC cookie, timestamp; if no cookie is present, serve a genuine static website), level 2 in the protocol (on rejection, show a mirror of the real error page rather than a TCP RST).

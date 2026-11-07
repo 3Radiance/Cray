@@ -30,12 +30,9 @@ impl Reorder {
             return Ok(vec);
         }
 
-        match self.pending.entry(seq) {
-            Entry::Occupied(_) => {
-                return Ok(vec);
-            }
-            _ => {}
-        };
+        if self.pending.contains_key(&seq) {
+            return Ok(vec);
+        }
 
         if buf.is_empty() {
             match self.fin {
