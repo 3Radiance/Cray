@@ -363,9 +363,9 @@ impl Session {
 impl Expired for Session {
     fn expired(&self, timeout: Duration) -> bool {
         !self.get_attached.load(Ordering::Relaxed)
-            && self.created.elapsed()
-                - Duration::from_millis(self.last_used.load(Ordering::Relaxed))
-                > timeout
+            && self.created.elapsed().saturating_sub(Duration::from_millis(
+                self.last_used.load(Ordering::Relaxed),
+            )) > timeout
     }
 }
 
@@ -482,14 +482,27 @@ async fn packet_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
     Ok(Box::new(Channel(rx)))
 }
 
-pub struct XH2RxPacketUp(mpsc::Receiver<Bytes>);
+pub struct XH2RxPacketUp(Option<mpsc::Receiver<Bytes>>, String);
 
 impl ChunkRx for XH2RxPacketUp {
     fn poll_chunk(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Option<Bytes>>> {
-        match self.0.poll_recv(cx) {
-            Poll::Ready(Some(bytes)) => Poll::Ready(Ok(Some(bytes))),
-            Poll::Ready(None) => Poll::Ready(Ok(None)),
-            Poll::Pending => Poll::Pending,
+        if let Some(rx) = self.0.as_mut() {
+            match rx.poll_recv(cx) {
+                Poll::Ready(Some(bytes)) => Poll::Ready(Ok(Some(bytes))),
+                Poll::Ready(None) => Poll::Ready(Ok(None)),
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            Poll::Ready(Ok(None))
+        }
+    }
+}
+
+impl Drop for XH2RxPacketUp {
+    fn drop(&mut self) {
+        session_cache().remove(&self.1);
+        if let Some(rx) = self.0.take() {
+            drop(rx);
         }
     }
 }
@@ -505,7 +518,6 @@ async fn get_handle(
         reject(&cfg, respond);
         return;
     };
-    session.get_attached.store(true, Ordering::Relaxed);
     let Ok(r) = build_response(&cfg, &Method::GET, &sid) else {
         return;
     };
@@ -513,9 +525,13 @@ async fn get_handle(
         return;
     };
 
-    let stream: BoxedStream = Box::pin(ChunkStream::new(XH2RxPacketUp(rx), XH2Tx(send_stream)));
+    let stream: BoxedStream = Box::pin(ChunkStream::new(
+        XH2RxPacketUp(Some(rx), sid),
+        XH2Tx(send_stream),
+    ));
 
     deliver(&out, stream).await;
+    session.get_attached.store(true, Ordering::Relaxed);
     session.last_used.store(
         session.created.elapsed().as_millis() as u64,
         Ordering::Relaxed,
