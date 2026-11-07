@@ -13,9 +13,14 @@ use http2::{RecvStream, server::SendResponse};
 use std::io;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::{Duration, Instant, interval};
+
+pub trait Expired: Send + Sync {
+    fn expired(&self, timeout: Duration) -> bool;
+}
 
 fn build_response(cfg: &Xhttp2Config, method: &Method, sid: &str) -> anyhow::Result<Response<()>> {
     let mut b = Response::builder().status(200);
@@ -135,7 +140,7 @@ async fn on_get(
     tx: &mpsc::Sender<BoxedStream>,
 ) {
     let pair = get_or_gen_pair(&sid);
-    let mut guard = pair.lock().await;
+    let mut guard = pair.state.lock().await;
 
     let Ok(r) = build_response(&*cfg, &Method::GET, &sid) else {
         return;
@@ -155,6 +160,7 @@ async fn on_get(
                 Box::pin(ChunkStream::new(XH2Rx::Body(post_body), XH2Tx(send_stream)));
             drop(guard);
             let _ = deliver(tx, stream).await;
+            pair.done.store(true, Ordering::Relaxed);
         }
         Pair::Waiting => {
             log_tag!(trace, "XH2", "parked GET half, waiting for POST");
@@ -181,7 +187,7 @@ async fn on_post(
     tx: &mpsc::Sender<BoxedStream>,
 ) {
     let pair = get_or_gen_pair(&sid);
-    let mut guard = pair.lock().await;
+    let mut guard = pair.state.lock().await;
     let Ok(r) = build_response(&*cfg, &method, &sid) else {
         return;
     };
@@ -202,6 +208,7 @@ async fn on_post(
             ));
             drop(guard);
             let _ = deliver(tx, stream).await;
+            pair.done.store(true, Ordering::Relaxed);
         }
         Pair::Waiting => {
             log_tag!(trace, "XH2", "parked POST half, waiting for GET");
@@ -219,15 +226,40 @@ async fn on_post(
     }
 }
 
-fn pair_cache() -> &'static DashMap<String, Arc<Mutex<Pair>>> {
-    static CACHE: OnceLock<DashMap<String, Arc<Mutex<Pair>>>> = OnceLock::new();
-    CACHE.get_or_init(DashMap::new)
+pub struct PairEntry {
+    pub created: Instant,
+    state: Mutex<Pair>,
+    pub done: AtomicBool,
 }
 
-fn get_or_gen_pair(sid: &str) -> Arc<Mutex<Pair>> {
+impl PairEntry {
+    pub fn new() -> Self {
+        Self {
+            created: Instant::now(),
+            state: Mutex::new(Pair::Waiting),
+            done: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Expired for PairEntry {
+    fn expired(&self, timeout: Duration) -> bool {
+        self.done.load(Ordering::Relaxed) || self.created.elapsed() > timeout
+    }
+}
+
+fn pair_cache() -> &'static DashMap<String, Arc<PairEntry>> {
+    static CACHE: OnceLock<DashMap<String, Arc<PairEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        tokio::spawn(async move { session_gc(pair_cache()).await });
+        DashMap::new()
+    })
+}
+
+fn get_or_gen_pair(sid: &str) -> Arc<PairEntry> {
     pair_cache()
         .entry(sid.to_string())
-        .or_insert_with(|| Arc::new(Mutex::new(Pair::Waiting)))
+        .or_insert_with(|| Arc::new(PairEntry::new()))
         .value()
         .clone()
 }
@@ -306,27 +338,43 @@ async fn stream_up(plain: BoxedStream, h2: &XH2) -> Result<BoxedIncoming> {
 }
 
 pub struct Session {
+    pub created: Instant,
     reorder: Mutex<Reorder>,
     out_tx: mpsc::Sender<Bytes>,
     out_rx: Mutex<Option<mpsc::Receiver<Bytes>>>,
-    pub last_used: Mutex<Instant>,
+    pub last_used: AtomicU64,
+    pub get_attached: AtomicBool,
 }
 
 impl Session {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel(64);
         Self {
+            created: Instant::now(),
             reorder: Mutex::new(Reorder::new()),
             out_tx: tx,
             out_rx: Mutex::new(Some(rx)),
-            last_used: Mutex::new(Instant::now()),
+            last_used: AtomicU64::new(0),
+            get_attached: AtomicBool::new(false),
         }
+    }
+}
+
+impl Expired for Session {
+    fn expired(&self, timeout: Duration) -> bool {
+        !self.get_attached.load(Ordering::Relaxed)
+            && self.created.elapsed()
+                - Duration::from_millis(self.last_used.load(Ordering::Relaxed))
+                > timeout
     }
 }
 
 fn session_cache() -> &'static DashMap<String, Arc<Session>> {
     static CACHE: OnceLock<DashMap<String, Arc<Session>>> = OnceLock::new();
-    CACHE.get_or_init(DashMap::new)
+    CACHE.get_or_init(|| {
+        tokio::spawn(async move { session_gc(session_cache()).await });
+        DashMap::new()
+    })
 }
 
 fn get_or_gen_session(sid: &String) -> Arc<Session> {
@@ -457,6 +505,7 @@ async fn get_handle(
         reject(&cfg, respond);
         return;
     };
+    session.get_attached.store(true, Ordering::Relaxed);
     let Ok(r) = build_response(&cfg, &Method::GET, &sid) else {
         return;
     };
@@ -467,8 +516,10 @@ async fn get_handle(
     let stream: BoxedStream = Box::pin(ChunkStream::new(XH2RxPacketUp(rx), XH2Tx(send_stream)));
 
     deliver(&out, stream).await;
-    let mut guard = session.last_used.lock().await;
-    *guard = Instant::now();
+    session.last_used.store(
+        session.created.elapsed().as_millis() as u64,
+        Ordering::Relaxed,
+    )
 }
 
 async fn post_handle(
@@ -532,13 +583,15 @@ async fn post_handle(
         return Err(anyhow!("failed to send"));
     };
 
-    let mut guard = session.last_used.lock().await;
-    *guard = Instant::now();
+    session.last_used.store(
+        session.created.elapsed().as_millis() as u64,
+        Ordering::Relaxed,
+    );
 
     Ok(())
 }
 
-pub async fn session_gc() {
+pub async fn session_gc<E: Expired>(cache: &DashMap<String, Arc<E>>) {
     let mut interval = interval(Duration::from_secs(15));
     let timeout = Duration::from_secs(30);
     let mut vec: Vec<String> = Vec::with_capacity(64);
@@ -546,12 +599,12 @@ pub async fn session_gc() {
     loop {
         interval.tick().await;
 
-        gc_iteration(&session_cache(), timeout, &mut vec).await;
+        gc_iteration(cache, timeout, &mut vec).await;
     }
 }
 
-pub async fn gc_iteration(
-    cache: &DashMap<String, Arc<Session>>,
+pub async fn gc_iteration<E: Expired>(
+    cache: &DashMap<String, Arc<E>>,
     timeout: Duration,
     vec: &mut Vec<String>,
 ) {
@@ -561,8 +614,7 @@ pub async fn gc_iteration(
         let sid = entry.key();
         let session = entry.value();
 
-        let guard = session.last_used.lock().await;
-        if guard.elapsed() > timeout {
+        if session.expired(timeout) {
             vec.push(sid.clone());
         }
     }

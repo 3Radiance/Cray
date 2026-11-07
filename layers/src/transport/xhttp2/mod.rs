@@ -1,7 +1,4 @@
-use super::{
-    chunk::{ChunkRx, ChunkTx},
-    xhttp2::server::session_gc,
-};
+use super::chunk::{ChunkRx, ChunkTx};
 use crate::profiles::{get_or_build_xhttp2_builder, get_xhttp2};
 use anyhow::{Result, anyhow, bail};
 use bytes::Bytes;
@@ -150,7 +147,6 @@ pub fn build(params: &toml::Table, bcx: &BuildCx) -> Result<Box<dyn Layer>> {
         None => bail!("need mode"),
     };
 
-    tokio::spawn(async move { session_gc().await });
     Ok(Box::new(XH2 {
         method,
         authority: host,
