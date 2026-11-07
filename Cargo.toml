@@ -35,6 +35,8 @@ zstd = "0.14"
 foreign-types-shared = "0.3"
 dashmap = "6.2.1"
 futures-util = { version = "0.3.34", features = ["sink", "std"] }
+tokio-tun = "0.23.0"
+smoltcp = "0.14.0"
 
 cray-core = { path = "core" }
 cray-layers = { path = "layers" }

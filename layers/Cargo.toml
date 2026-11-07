@@ -31,6 +31,8 @@ rand.workspace = true
 hex.workspace = true
 tokio-util.workspace = true
 futures-util.workspace = true
+tokio-tun.workspace = true
+smoltcp.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
