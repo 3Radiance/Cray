@@ -72,6 +72,7 @@ tcp → tls → xhttp2 → auth → протокол
 | `pad` | выравнивание размеров, чистый шейпер (`stages`, без ключей; см. [docs/ru/shaping.md](docs/ru/shaping.md)) | то же |
 | `auth` | аутентификация кадров: HMAC-тэг на каждую запись, один общий ключ, без хендшейка; см. [docs/ru/auth.md](docs/ru/auth.md) | то же (ключ идентичен на обоих концах) |
 | `vless` | протокол: заворачивает стрим во фрейминг VLESS — заголовок с аутентификацией по UUID (команда TCP), адрес цели, затем полезная нагрузка | протокол: распаковывает фрейминг VLESS, проверяет UUID, коннектится к цели и соединяет оба конца |
+| `pipe` | — | локальный протокол для тестирования и локального прозрачного прокси без сервера: конфига нет; берёт адрес цели из контекста (`ConnectRequest`, его поставляет, например, `http-proxy`), дозванивается до неё через outbound-цепочку (`Dialer`) и сшивает оба конца соединения, пока не упрётся в EOF. Из `Cx` требует только эти два ключа. |
 
 Порядок важен для `pad`: `tcp → tls → pad` прячет паддинг внутри шифрования (рекомендуется). `tcp → pad → tls` тоже работает, но светит формат кадров DPI. `pad` не аутентифицирует; ставь под ним слой `auth` (`tcp → tls → auth → pad → протокол`; см. [docs/ru/auth.md](docs/ru/auth.md)).
 
@@ -247,7 +248,7 @@ permute_extensions = true
 | Путь | Назначение |
 |---|---|
 | `core/` | Движок: контракт слоя (`Layer`), `Registry`, сборка и проверка цепочек, исполнитель `drive`. Не знает имён слоёв. |
-| `layers/` | Все слои по видам: `transport/` (`tls`, `http2`, `xhttp2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrappers/` (`jitter`, `fragment`, `pad`, `auth`), а также `tcp`, `unix`, билдеры `fingerprint/` и загрузка `profiles/`. Новый слой это один файл плюс одна строка `register`. |
+| `layers/` | Все слои по видам: `transport/` (`tls`, `http2`, `xhttp2`), `proxy/` (`http-proxy`), `protocol/` (`vless`, `pipe`), `wrappers/` (`jitter`, `fragment`, `pad`, `auth`), а также `tcp`, `unix`, билдеры `fingerprint/` и загрузка `profiles/`. Новый слой это один файл плюс одна строка `register`. |
 | `cray/` | Бинарник: разбирает аргументы, регистрирует слои, собирает движок, запускает. |
 | `conf/` | Примеры конфигов и профилей. |
 | `docs/` | Справочники по слоям и профилям на английском (`eng/`) и русском (`ru/`). |
@@ -278,7 +279,7 @@ RUST_LOG=info ./cray --config server.toml
 RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 ```
 
-Теги: `CHAIN`, `INB`, `TCP`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTER`, `FRAG`, `PAD`. Подробности по каждому соединению пишутся на уровнях `debug` и `trace`, поэтому `info` остаётся тихим.
+Теги: `CHAIN`, `INB`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTER`, `FRAG`, `PAD`. Подробности по каждому соединению пишутся на уровнях `debug` и `trace`, поэтому `info` остаётся тихим.
 
 ---
 
@@ -286,7 +287,7 @@ RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 
 ### Работает
 
-- Слои `tcp`, `unix`, `http-proxy`, `tls`, `http2`, `xhttp2` и `vless`, а также обёртки `jitter`, `fragment`, `pad` и `auth`.
+- Слои `tcp`, `unix`, `http-proxy`, `tls`, `http2`, `xhttp2`, `pipe` и `vless`, а также обёртки `jitter`, `fragment`, `pad` и `auth`.
 - Сборка inbound- и outbound-цепочек из конфига и проверка порядка слоёв.
 - `http2`: HTTP/2-клиент с профилем и сервер с настраиваемыми ответами и отказами; см. [docs/ru/http2.md](docs/ru/http2.md).
 - `xhttp2`: upload и download разнесены по отдельным HTTP/2-запросам и связываются по заголовку Session ID на ваш выбор. `StreamUp` стримит upload одним `POST`; `PacketUp` отправляет его упорядоченными `POST`-пакетами с восстановлением порядка через персональный буфер реордера сессии и прогнан через Cloudflare и nginx. Простаивающие и несопоставленные сессии удаляет фоновый GC. См. [docs/ru/xhttp2.md](docs/ru/xhttp2.md).

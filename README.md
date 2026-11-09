@@ -72,6 +72,7 @@ Role follows position, there is no client/server switch. Inbound layers listen a
 | `pad` | Size equalization, a pure shaper (`stages`, no keys; see [docs/eng/shaping.md](docs/eng/shaping.md)). | Same. |
 | `auth` | Frame authentication: an HMAC-SHA256 tag over every record, one shared key, no handshake; see [docs/eng/auth.md](docs/eng/auth.md). | Same (identical key on both ends). |
 | `vless` | Protocol: wraps the stream into VLESS framing — a UUID-authenticated header (TCP command), the target address, then the payload. | Protocol: unwraps VLESS framing, verifies the UUID, dials the target and pipes the two ends together. |
+| `pipe` | — | Local protocol for testing and a local transparent proxy without a server: no config; reads the target address from the context (`ConnectRequest`, provided e.g. by `http-proxy`), dials it through the outbound chain (`Dialer`) and pipes the two ends together until EOF. Requires both of those keys from `Cx`, nothing else. |
 
 Placement matters for `pad`: `tcp → tls → pad` hides padding inside the encryption (recommended). `tcp → pad → tls` also works, but exposes the framing to DPI. `pad` does not authenticate; put the `auth` layer under it (`tcp → tls → auth → pad → protocol`; see [docs/eng/auth.md](docs/eng/auth.md)).
 
@@ -247,7 +248,7 @@ On the server the `tls` layer takes `alpn` directly; `tls_path` is ignored inbou
 | Path | Purpose |
 |---|---|
 | `core/` | The engine: layer contract (`Layer`), `Registry`, chain building and validation, the `drive` runner. Knows no layer names. |
-| `layers/` | All layers, grouped by kind: `transport/` (`tls`, `http2`, `xhttp2`), `proxy/` (`http-proxy`), `protocol/` (`vless`), `wrappers/` (`jitter`, `fragment`, `pad`, `auth`), plus `tcp`, `unix`, `fingerprint/` builders and `profiles/` loading. A new layer is one file plus one `register` line. |
+| `layers/` | All layers, grouped by kind: `transport/` (`tls`, `http2`, `xhttp2`), `proxy/` (`http-proxy`), `protocol/` (`vless`, `pipe`), `wrappers/` (`jitter`, `fragment`, `pad`, `auth`), plus `tcp`, `unix`, `fingerprint/` builders and `profiles/` loading. A new layer is one file plus one `register` line. |
 | `cray/` | The binary: parses args, registers layers, builds the engine, runs. |
 | `conf/` | Example configs and profiles. |
 | `docs/` | Layer and profile references in English (`eng/`) and Russian (`ru/`). |
@@ -278,7 +279,7 @@ RUST_LOG=info ./cray --config server.toml
 RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 ```
 
-Tags: `CHAIN`, `INB`, `TCP`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTER`, `FRAG`, `PAD`. Per-connection details are logged at `debug` and `trace`, so `info` stays quiet.
+Tags: `CHAIN`, `INB`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTER`, `FRAG`, `PAD`. Per-connection details are logged at `debug` and `trace`, so `info` stays quiet.
 
 ---
 
@@ -286,7 +287,7 @@ Tags: `CHAIN`, `INB`, `TCP`, `HTTP`, `TLS`, `CERT`, `H2`, `XH2`, `VLESS`, `JITTE
 
 ### Working
 
-- Layers `tcp`, `unix`, `http-proxy`, `tls`, `http2`, `xhttp2` and `vless`, and the `jitter`, `fragment`, `pad` and `auth` wrappers.
+- Layers `tcp`, `unix`, `http-proxy`, `tls`, `http2`, `xhttp2`, `pipe` and `vless`, and the `jitter`, `fragment`, `pad` and `auth` wrappers.
 - Building inbound and outbound chains from the config and validating the layer order.
 - `http2`: a profiled HTTP/2 client and a server with configurable responses and rejections; see [docs/eng/http2.md](docs/eng/http2.md).
 - `xhttp2`: upload and download split across separate HTTP/2 requests, correlated by a session-ID header of your choice. `StreamUp` streams the upload in one `POST`; `PacketUp` sends it as ordered `POST` packets restored by a per-session reorder buffer, and has been run through Cloudflare and nginx. Idle and never-paired sessions are expired by a background GC. See [docs/eng/xhttp2.md](docs/eng/xhttp2.md).
