@@ -8,6 +8,7 @@ pub struct Reorder {
     next: u64,
     fin: Option<u64>,
     pending: HashMap<u64, Bytes>,
+    pub buf: Vec<Bytes>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -21,17 +22,18 @@ impl Reorder {
             next: 0,
             fin: None,
             pending: HashMap::new(),
+            buf: Vec::with_capacity(24),
         }
     }
 
-    pub fn push(&mut self, seq: u64, buf: Bytes) -> Result<Vec<Bytes>, ReorderError> {
-        let mut vec = Vec::new();
+    pub fn push(&mut self, seq: u64, buf: Bytes) -> Result<(), ReorderError> {
+        self.buf.clear();
         if seq < self.next {
-            return Ok(vec);
+            return Ok(());
         }
 
         if self.pending.contains_key(&seq) {
-            return Ok(vec);
+            return Ok(());
         }
 
         if buf.is_empty() {
@@ -50,21 +52,21 @@ impl Reorder {
         match seq {
             seq if seq == self.next => {
                 self.next += 1;
-                vec.push(buf);
+                self.buf.push(buf);
                 while let Some(b) = self.pending.remove(&self.next) {
                     self.next += 1;
-                    vec.push(b);
+                    self.buf.push(b);
                 }
-                return Ok(vec);
+                return Ok(());
             }
             seq if seq > self.next => {
                 match self.pending.entry(seq) {
                     Entry::Occupied(_) => {
-                        return Ok(vec);
+                        return Ok(());
                     }
                     Entry::Vacant(slot) => slot.insert(buf),
                 };
-                return Ok(vec);
+                return Ok(());
             }
             _ => return Err(InvalidSeq),
         }

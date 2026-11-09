@@ -571,8 +571,8 @@ async fn post_handle(
 
     let buf = buf.freeze();
     let mut guard = session.reorder.lock().await;
-    let vec = match guard.push(seq, buf) {
-        Ok(v) => v,
+    match guard.push(seq, buf) {
+        Ok(_) => {}
         Err(_) => {
             drop(guard);
             session_cache().remove(&sid);
@@ -580,12 +580,12 @@ async fn post_handle(
             return Err(anyhow!("Reject, invalid seq"));
         }
     };
-    for chunk in vec {
+    for chunk in &guard.buf {
         if chunk.is_empty() {
             session_cache().remove(&sid);
             break;
         }
-        if session.out_tx.send(chunk).await.is_err() {
+        if session.out_tx.send(chunk.to_owned()).await.is_err() {
             session_cache().remove(&sid);
             break;
         }
