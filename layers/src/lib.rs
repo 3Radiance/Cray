@@ -30,6 +30,7 @@ pub mod proxy;
 pub mod tcp;
 pub mod transport;
 pub mod tun;
+pub mod tun_tcp;
 pub mod unix;
 pub mod wrappers;
 
@@ -47,6 +48,7 @@ pub fn register(r: &mut Registry) {
     r.add("xhttp2", transport::xhttp2::build);
     r.add("pipe", protocol::pipe::build);
     r.add("tun", tun::build);
+    r.add("tun-tcp", tun_tcp::build);
     // r.add("xhttp", transport::xhttp::build);
     // r.add("byedpi", wrappers::byedpi::build);
     // r.add("direct", protocol::direct::build);

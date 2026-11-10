@@ -14,7 +14,7 @@ impl Layer for Pipe {
         Ports::TERMINAL
     }
     fn requires(&self) -> Vec<Key> {
-        vec![key::<ConnectRequest>(), key::<Dialer>()]
+        vec![key::<ConnectRequest>()]
     }
 
     fn call<'a>(&'a self, input: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
@@ -26,7 +26,7 @@ impl Layer for Pipe {
             let con = cx
                 .get::<ConnectRequest>()
                 .ok_or_else(|| anyhow!("ConnectRequest dont have"))?;
-            let mut stream = dialer.dial_to(cx, con.clone()).await?;
+            let mut stream = dialer.dial_to(cx, con.to_owned()).await?;
 
             tokio::io::copy_bidirectional(&mut client, &mut stream).await?;
 
