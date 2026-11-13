@@ -1,0 +1,35 @@
+# wreq-util emulation profile: okhttp/okhttp3_11
+# UA by OS ('*' = default/first):
+#   android  NRC Audio/2.0.6 (nl.nrc.audio; build:36; Android 12; Sdk:31; Manufacturer:motorola; Model: moto g72) OkHttp/3.11.0
+
+settings_order = [
+    "header_table_size",
+    "max_concurrent_streams",
+    "initial_window_size",
+    "max_frame_size",
+    "max_header_list_size",
+    "enable_connect_protocol",
+    "no_rfc7540_priorities",
+]
+connection_window_update = 16711681
+pseudo_headers_order = [
+    ":method",
+    ":path",
+    ":authority",
+    ":scheme",
+]
+headers_order = [
+    "accept",
+    "accept-language",
+    "user-agent",
+    "accept-encoding",
+]
+[http_headers]
+accept = "*/*"
+accept-language = "en-US,en;q=0.9"
+user-agent = "NRC Audio/2.0.6 (nl.nrc.audio; build:36; Android 12; Sdk:31; Manufacturer:motorola; Model: moto g72) OkHttp/3.11.0"
+accept-encoding = "gzip"
+[settings]
+enable_push = true
+initial_window_size = 16777216
+# NOTE: wreq okhttp: enable_push не задан (не шлётся); тут включён формально — не в settings_order

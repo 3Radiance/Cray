@@ -1,0 +1,35 @@
+# wreq-util emulation profile: okhttp/okhttp3_9
+# UA by OS ('*' = default/first):
+#   android  MaiMemo/4.4.50_639 okhttp/3.9 Android/5.0 Channel/WanDouJia Device/alps+M8+Emulator (armeabi-v7a) Screen/4.44 Resolution/480x800 DId/aa6cde19def3806806d5374c4e5fd617 RAM/0.94 ROM/4.91 Theme/Day
+
+settings_order = [
+    "header_table_size",
+    "max_concurrent_streams",
+    "initial_window_size",
+    "max_frame_size",
+    "max_header_list_size",
+    "enable_connect_protocol",
+    "no_rfc7540_priorities",
+]
+connection_window_update = 16711681
+pseudo_headers_order = [
+    ":method",
+    ":path",
+    ":authority",
+    ":scheme",
+]
+headers_order = [
+    "accept",
+    "accept-language",
+    "user-agent",
+    "accept-encoding",
+]
+[http_headers]
+accept = "*/*"
+accept-language = "en-US,en;q=0.9"
+user-agent = "MaiMemo/4.4.50_639 okhttp/3.9 Android/5.0 Channel/WanDouJia Device/alps+M8+Emulator (armeabi-v7a) Screen/4.44 Resolution/480x800 DId/aa6cde19def3806806d5374c4e5fd617 RAM/0.94 ROM/4.91 Theme/Day"
+accept-encoding = "gzip"
+[settings]
+enable_push = true
+initial_window_size = 16777216
+# NOTE: wreq okhttp: enable_push не задан (не шлётся); тут включён формально — не в settings_order

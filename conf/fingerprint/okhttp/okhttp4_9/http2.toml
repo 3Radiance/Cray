@@ -1,0 +1,35 @@
+# wreq-util emulation profile: okhttp/okhttp4_9
+# UA by OS ('*' = default/first):
+#   android  GM-Android/6.111.1 (240460200; M:motorola moto g power (2021); O:30; D:76ba9f6628d198c8) ObsoleteUrlFactory/1.0 OkHttp/4.9
+
+settings_order = [
+    "header_table_size",
+    "max_concurrent_streams",
+    "initial_window_size",
+    "max_frame_size",
+    "max_header_list_size",
+    "enable_connect_protocol",
+    "no_rfc7540_priorities",
+]
+connection_window_update = 16711681
+pseudo_headers_order = [
+    ":method",
+    ":path",
+    ":authority",
+    ":scheme",
+]
+headers_order = [
+    "accept",
+    "accept-language",
+    "user-agent",
+    "accept-encoding",
+]
+[http_headers]
+accept = "*/*"
+accept-language = "en-US,en;q=0.9"
+user-agent = "GM-Android/6.111.1 (240460200; M:motorola moto g power (2021); O:30; D:76ba9f6628d198c8) ObsoleteUrlFactory/1.0 OkHttp/4.9"
+accept-encoding = "gzip"
+[settings]
+enable_push = true
+initial_window_size = 16777216
+# NOTE: wreq okhttp: enable_push не задан (не шлётся); тут включён формально — не в settings_order

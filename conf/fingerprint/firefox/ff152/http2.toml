@@ -1,0 +1,55 @@
+# wreq-util emulation profile: firefox/ff152
+# UA by OS ('*' = default/first):
+#   windows  Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0
+#   macos    Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0
+#   linux    Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0
+#   android  Mozilla/5.0 (Android 13; Mobile; rv:152.0) Gecko/152.0 Firefox/152.0
+#   ios      Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/152.0 Mobile/15E148 Safari/605.1.15
+
+settings_order = [
+    "header_table_size",
+    "enable_push",
+    "initial_window_size",
+    "max_frame_size",
+    "enable_connect_protocol",
+    "no_rfc7540_priorities",
+]
+connection_window_update = 12517377
+initial_stream_id = 3
+pseudo_headers_order = [
+    ":method",
+    ":path",
+    ":authority",
+    ":scheme",
+]
+headers_priority = { exclusive = false, depends_on = 0, weight = 41 }
+headers_order = [
+    "user-agent",
+    "accept",
+    "accept-language",
+    "accept-encoding",
+    "upgrade-insecure-requests",
+    "sec-fetch-dest",
+    "sec-fetch-mode",
+    "sec-fetch-site",
+    "sec-fetch-user",
+    "priority",
+    "te",
+]
+[http_headers]
+user-agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"
+accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+accept-language = "en-US,en;q=0.9"
+accept-encoding = "gzip, deflate, br, zstd"
+upgrade-insecure-requests = "1"
+sec-fetch-dest = "document"
+sec-fetch-mode = "navigate"
+sec-fetch-site = "none"
+sec-fetch-user = "?1"
+priority = "u=0, i"
+te = "trailers"
+[settings]
+header_table_size = 65536
+enable_push = false
+initial_window_size = 131072
+max_frame_size = 16384

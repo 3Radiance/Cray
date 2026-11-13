@@ -1,0 +1,43 @@
+# wreq-util emulation profile: safari/safari18_3_1
+# UA by OS ('*' = default/first):
+#   macos    Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15
+
+settings_order = [
+    "enable_push",
+    "max_concurrent_streams",
+    "initial_window_size",
+    "enable_connect_protocol",
+    "no_rfc7540_priorities",
+]
+connection_window_update = 10420225
+pseudo_headers_order = [
+    ":method",
+    ":scheme",
+    ":authority",
+    ":path",
+]
+headers_order = [
+    "sec-fetch-dest",
+    "user-agent",
+    "accept",
+    "sec-fetch-site",
+    "sec-fetch-mode",
+    "accept-language",
+    "priority",
+    "accept-encoding",
+]
+[http_headers]
+sec-fetch-dest = "document"
+user-agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15"
+accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+sec-fetch-site = "none"
+sec-fetch-mode = "navigate"
+accept-language = "en-US,en;q=0.9"
+priority = "u=0, i"
+accept-encoding = "gzip, deflate, br"
+[settings]
+enable_push = false
+max_concurrent_streams = 100
+initial_window_size = 2097152
+enable_connect_protocol = true
+no_rfc7540_priorities = true

@@ -1,0 +1,56 @@
+# wreq-util emulation profile: safari/safari26_4
+# UA by OS ('*' = default/first):
+#   macos    Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15
+
+cipher_suites = [
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_CHACHA20_POLY1305_SHA256",
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-CHACHA20-POLY1305",
+    "ECDHE-RSA-AES256-GCM-SHA384",
+    "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-RSA-CHACHA20-POLY1305",
+    "ECDHE-ECDSA-AES256-SHA",
+    "ECDHE-ECDSA-AES128-SHA",
+    "ECDHE-RSA-AES256-SHA",
+    "ECDHE-RSA-AES128-SHA",
+    "AES256-GCM-SHA384",
+    "AES128-GCM-SHA256",
+    "AES256-SHA",
+    "AES128-SHA",
+    "ECDHE-ECDSA-DES-CBC3-SHA",
+    "ECDHE-RSA-DES-CBC3-SHA",
+    "DES-CBC3-SHA",
+]
+alpn = [
+    "h2",
+    "http/1.1",
+]
+curves = [
+    "X25519",
+    "P-256",
+    "P-384",
+    "P-521",
+]
+signature_algorithms = [
+    "ecdsa_secp256r1_sha256",
+    "rsa_pss_rsae_sha256",
+    "rsa_pkcs1_sha256",
+    "ecdsa_secp384r1_sha384",
+    "rsa_pss_rsae_sha384",
+    "rsa_pkcs1_sha384",
+    "rsa_pss_rsae_sha512",
+    "rsa_pkcs1_sha512",
+    "rsa_pkcs1_sha1",
+]
+cert_compression = [
+    "zlib",
+]
+grease_enabled = true
+status_request = true
+signed_certificate_timestamp = true
+session_ticket = false
+min_tls_version = "tls1.0"
+max_tls_version = "tls1.3"

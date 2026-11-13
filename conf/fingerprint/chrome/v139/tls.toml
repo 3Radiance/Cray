@@ -1,0 +1,58 @@
+# wreq-util emulation profile: chrome/v139
+# UA by OS ('*' = default/first):
+#   macos    Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36
+#   linux    Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36
+#   android  Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36
+#   windows  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36
+#   ios      Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/139.0.0.0 Mobile/15E148 Safari/604.1
+
+cipher_suites = [
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_CHACHA20_POLY1305_SHA256",
+    "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "ECDHE-RSA-AES256-GCM-SHA384",
+    "ECDHE-ECDSA-CHACHA20-POLY1305",
+    "ECDHE-RSA-CHACHA20-POLY1305",
+    "ECDHE-RSA-AES128-SHA",
+    "ECDHE-RSA-AES256-SHA",
+    "AES128-GCM-SHA256",
+    "AES256-GCM-SHA384",
+    "AES128-SHA",
+    "AES256-SHA",
+]
+alpn = [
+    "h2",
+    "http/1.1",
+]
+curves = [
+    "X25519MLKEM768",
+    "X25519",
+    "P-256",
+    "P-384",
+]
+signature_algorithms = [
+    "ecdsa_secp256r1_sha256",
+    "rsa_pss_rsae_sha256",
+    "rsa_pkcs1_sha256",
+    "ecdsa_secp384r1_sha384",
+    "rsa_pss_rsae_sha384",
+    "rsa_pkcs1_sha384",
+    "rsa_pss_rsae_sha512",
+    "rsa_pkcs1_sha512",
+]
+cert_compression = [
+    "brotli",
+]
+grease_enabled = true
+status_request = true
+signed_certificate_timestamp = true
+alps = true
+alps_use_new_codepoint = true
+aes_hw_override = true
+min_tls_version = "tls1.2"
+max_tls_version = "tls1.3"
+permute_extensions = true
+enable_ech_grease = true

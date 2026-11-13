@@ -1,0 +1,54 @@
+# wreq-util emulation profile: firefox/ff109
+# UA by OS ('*' = default/first):
+#   windows  Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0
+#   macos    Mozilla/5.0 (Macintosh; Intel Mac OS X 10_17; rv:109.0) Gecko/20000101 Firefox/109.0
+#   android  Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/109.0 Firefox/109.0
+#   linux    Mozilla/5.0 (X11; Linux i686; rv:109.0) Gecko/20100101 Firefox/109.0
+#   ios      Mozilla/5.0 (iPad; CPU OS 13_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/109.0 Mobile/15E148 Safari/605.1.15
+
+settings_order = [
+    "header_table_size",
+    "initial_window_size",
+    "max_frame_size",
+    "enable_connect_protocol",
+    "no_rfc7540_priorities",
+]
+connection_window_update = 12517377
+initial_stream_id = 15
+pseudo_headers_order = [
+    ":method",
+    ":path",
+    ":authority",
+    ":scheme",
+]
+headers_priority = { exclusive = false, depends_on = 13, weight = 41 }
+priority_frames = [{ stream_id = 3, depends_on = 0, weight = 200, exclusive = false }, { stream_id = 5, depends_on = 0, weight = 100, exclusive = false }, { stream_id = 7, depends_on = 0, weight = 0, exclusive = false }, { stream_id = 9, depends_on = 7, weight = 0, exclusive = false }, { stream_id = 11, depends_on = 3, weight = 0, exclusive = false }, { stream_id = 13, depends_on = 0, weight = 240, exclusive = false }]
+headers_order = [
+    "user-agent",
+    "accept",
+    "accept-language",
+    "accept-encoding",
+    "upgrade-insecure-requests",
+    "sec-fetch-dest",
+    "sec-fetch-mode",
+    "sec-fetch-site",
+    "sec-fetch-user",
+    "te",
+]
+[http_headers]
+user-agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0"
+accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+accept-language = "en-US,en;q=0.5"
+accept-encoding = "gzip, deflate, br"
+upgrade-insecure-requests = "1"
+sec-fetch-dest = "document"
+sec-fetch-mode = "navigate"
+sec-fetch-site = "none"
+sec-fetch-user = "?1"
+te = "trailers"
+[settings]
+header_table_size = 65536
+enable_push = true
+initial_window_size = 131072
+max_frame_size = 16384
+# NOTE: wreq: enable_push не задан (не шлётся); тут enable_push=true обязателен по схеме, но не включён в settings_order

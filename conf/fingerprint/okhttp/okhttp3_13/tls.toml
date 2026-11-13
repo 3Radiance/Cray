@@ -1,0 +1,46 @@
+# wreq-util emulation profile: okhttp/okhttp3_13
+# UA by OS ('*' = default/first):
+#   android  GM-Android/6.112.2 (240590300; M:Google Pixel 7a; O:34; D:2b045e03986fa6dc) ObsoleteUrlFactory/1.0 OkHttp/3.13.0
+
+cipher_suites = [
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_CHACHA20_POLY1305_SHA256",
+    "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "ECDHE-RSA-AES256-GCM-SHA384",
+    "ECDHE-ECDSA-CHACHA20-POLY1305",
+    "ECDHE-RSA-CHACHA20-POLY1305",
+    "ECDHE-RSA-AES128-SHA",
+    "ECDHE-RSA-AES256-SHA",
+    "AES128-GCM-SHA256",
+    "AES256-GCM-SHA384",
+    "AES128-SHA",
+    "AES256-SHA",
+    "DES-CBC3-SHA",
+]
+alpn = [
+    "h2",
+    "http/1.1",
+]
+curves = [
+    "X25519",
+    "P-256",
+    "P-384",
+]
+signature_algorithms = [
+    "ecdsa_secp256r1_sha256",
+    "rsa_pss_rsae_sha256",
+    "rsa_pkcs1_sha256",
+    "ecdsa_secp384r1_sha384",
+    "rsa_pss_rsae_sha384",
+    "rsa_pkcs1_sha384",
+    "rsa_pss_rsae_sha512",
+    "rsa_pkcs1_sha512",
+    "rsa_pkcs1_sha1",
+]
+status_request = true
+aes_hw_override = true
+min_tls_version = "tls1.2"
+max_tls_version = "tls1.3"
