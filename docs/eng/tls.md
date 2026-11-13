@@ -139,10 +139,10 @@ negotiated.
 
 The outbound connector is assembled in `tls_builder`
 (`layers/src/fingerprint/tls/builder.rs`) in this order: Chromium root store → cipher
-suites → ALPN → curves → signature algorithms → record size limit →
-certificate compression → GREASE → extension permutation → OCSP → SCT →
-session ticket → delegated credentials → extension order. ALPS is attached per
-connection.
+suites → TLS version bounds → ALPN → curves → signature algorithms → record size limit →
+certificate compression → GREASE → AES hardware override → extension permutation → OCSP → SCT →
+session ticket → delegated credentials → extension order → trust anchors. ALPS and
+key shares are attached per connection.
 
 ### Server certificate verification (outbound)
 
@@ -181,6 +181,12 @@ status_request = false
 signed_certificate_timestamp = false
 session_ticket = false
 alps = false
+alps_use_new_codepoint = false
+aes_hw_override = false
+min_tls_version = "tls1.2"
+max_tls_version = "tls1.3"
+# key_shares = ["X25519MLKEM768", "X25519", "P-256"]   groups in the key_share extension
+# trust_anchors = "sorted"                             "sorted" | "shuffled" (chrome 152+)
 # extensions_order = [ ... ]    omit unless you need a fixed order
 # delegated_credentials = [ ... ]
 # record_size_limit = 16385
@@ -209,30 +215,55 @@ TLS_AES_256_GCM_SHA384
 TLS_CHACHA20_POLY1305_SHA256
 ```
 
-TLS 1.2:
+TLS 1.2 accepts both the short OpenSSL-style names and the full IANA names
+(`TLS_<...>`) — BoringSSL recognizes both spellings. The full TLS 1.2
+vocabulary, grouped by key exchange:
+
 ```
-ECDHE-ECDSA-AES128-GCM-SHA256
-ECDHE-ECDSA-AES256-GCM-SHA384
-ECDHE-RSA-AES128-GCM-SHA256
-ECDHE-RSA-AES256-GCM-SHA384
-ECDHE-ECDSA-CHACHA20-POLY1305
-ECDHE-RSA-CHACHA20-POLY1305
-ECDHE-ECDSA-AES128-SHA
-ECDHE-RSA-AES128-SHA
-ECDHE-RSA-AES128-SHA256
-ECDHE-ECDSA-AES256-SHA
-ECDHE-RSA-AES256-SHA
-TLS_RSA_WITH_AES_128_GCM_SHA256
-TLS_RSA_WITH_AES_256_GCM_SHA384
-TLS_RSA_WITH_AES_128_CBC_SHA
-TLS_RSA_WITH_AES_256_CBC_SHA
-TLS_RSA_WITH_3DES_EDE_CBC_SHA
-TLS_PSK_WITH_AES_128_CBC_SHA
-TLS_PSK_WITH_AES_256_CBC_SHA
-ECDHE-PSK-AES128-CBC-SHA
-ECDHE-PSK-AES256-CBC-SHA
-ECDHE-PSK-CHACHA20-POLY1305
+# ECDHE + ECDSA
+ECDHE-ECDSA-AES128-GCM-SHA256      (TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+ECDHE-ECDSA-AES256-GCM-SHA384      (TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384)
+ECDHE-ECDSA-CHACHA20-POLY1305      (TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256)
+ECDHE-ECDSA-AES128-SHA             (TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA)
+ECDHE-ECDSA-AES128-SHA256          (TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256)
+ECDHE-ECDSA-AES256-SHA             (TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA)
+ECDHE-ECDSA-AES256-SHA384          (TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384)
+ECDHE-ECDSA-DES-CBC3-SHA           (TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA)
+# ECDHE + RSA
+ECDHE-RSA-AES128-GCM-SHA256        (TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256)
+ECDHE-RSA-AES256-GCM-SHA384        (TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384)
+ECDHE-RSA-CHACHA20-POLY1305        (TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+ECDHE-RSA-AES128-SHA               (TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA)
+ECDHE-RSA-AES128-SHA256            (TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256)
+ECDHE-RSA-AES256-SHA               (TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA)
+ECDHE-RSA-AES256-SHA384            (TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384)
+ECDHE-RSA-DES-CBC3-SHA             (TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA)
+# DHE + RSA
+DHE-RSA-AES128-GCM-SHA256          (TLS_DHE_RSA_WITH_AES_128_GCM_SHA256)
+DHE-RSA-AES256-GCM-SHA384          (TLS_DHE_RSA_WITH_AES_256_GCM_SHA384)
+DHE-RSA-AES128-SHA                 (TLS_DHE_RSA_WITH_AES_128_CBC_SHA)
+DHE-RSA-AES128-SHA256              (TLS_DHE_RSA_WITH_AES_128_CBC_SHA256)
+DHE-RSA-AES256-SHA                 (TLS_DHE_RSA_WITH_AES_256_CBC_SHA)
+DHE-RSA-AES256-SHA256              (TLS_DHE_RSA_WITH_AES_256_CBC_SHA256)
+# static RSA
+AES128-GCM-SHA256                  (TLS_RSA_WITH_AES_128_GCM_SHA256)
+AES256-GCM-SHA384                  (TLS_RSA_WITH_AES_256_GCM_SHA384)
+AES128-SHA                         (TLS_RSA_WITH_AES_128_CBC_SHA)
+AES128-SHA256                      (TLS_RSA_WITH_AES_128_CBC_SHA256)
+AES256-SHA                         (TLS_RSA_WITH_AES_256_CBC_SHA)
+AES256-SHA256                      (TLS_RSA_WITH_AES_256_CBC_SHA256)
+DES-CBC3-SHA                       (TLS_RSA_WITH_3DES_EDE_CBC_SHA)
+# PSK (requires a configured PSK, otherwise the handshake fails)
+ECDHE-PSK-AES128-CBC-SHA           (TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA)
+ECDHE-PSK-AES256-CBC-SHA           (TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA)
+ECDHE-PSK-CHACHA20-POLY1305        (TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256)
+PSK-AES128-CBC-SHA                 (TLS_PSK_WITH_AES_128_CBC_SHA)
+PSK-AES256-CBC-SHA                 (TLS_PSK_WITH_AES_256_CBC_SHA)
 ```
+
+The IANA spelling of the same suite is given in parentheses. Names outside
+this list are rejected by BoringSSL and the connection fails, so typos are
+visible immediately.
 
 ### `alpn`: protocol list
 
@@ -253,8 +284,72 @@ P-521
 X25519
 X25519Kyber768Draft00
 X25519MLKEM768
+P256Kyber768Draft00
 MLKEM1024
+ffdhe2048   (alias: dhe2048)
+ffdhe3072   (alias: dhe3072)
 ```
+
+List order is the `supported_groups` order in the ClientHello. The first
+group (more precisely, groups with configured key shares, see below) is sent
+with a ready key share, the rest are advertised as supported only.
+
+### `key_shares`: groups with a ready key share
+
+List of groups for which the `key_share` extension carries an actual key
+exchange. The extension position is controlled via `extensions_order`. Names
+match a subset of `curves`:
+
+```
+X25519
+X25519MLKEM768
+X25519Kyber768Draft00
+P256Kyber768Draft00
+P-256
+P-384
+P-521
+MLKEM1024
+ffdhe2048
+ffdhe3072
+```
+
+If the field is omitted, BoringSSL picks the shares itself (typically X25519
+plus the first PQ group from `curves`). Chrome/Opera/Safari/OkHttp behave
+exactly this way — only Firefox sets the list explicitly (`["X25519", "P-256"]`
+in older versions, `["X25519MLKEM768", "X25519", "P-256"]` in newer ones). An
+unknown name fails at startup. btls-0.5.6 limitation: the API only accepts key
+shares per connection, so the value is validated when the profile is loaded
+and applied at handshake time.
+
+### `min_tls_version` / `max_tls_version`: version bounds
+
+Constrain the version range offered in `supported_versions`. Values are
+case-insensitive:
+
+```
+"tls1.0"  (or "tls1")
+"tls1.1"
+"tls1.2"
+"tls1.3"
+```
+
+Both fields are optional and independent: no lower bound means the BoringSSL
+minimum, no upper bound means the maximum. Typical browser values are
+`min_tls_version = "tls1.2"`, `max_tls_version = "tls1.3"`; Safari 15.x keeps
+a minimum of `"tls1.0"`.
+
+### `trust_anchors`: trusted root IDs
+
+Sending the list of trusted roots in the `trust_anchor_ids` extension
+(draft-ietf-tls-trust-anchor-ids): the outbound announces which Chromium root
+certificates it is willing to trust the server against. Two values are
+accepted:
+
+- `"sorted"` — Chromium root certificate IDs in sorted order;
+- `"shuffled"` — the same IDs in random order (re-shuffled per connection).
+
+Omit the key to not send the extension. Only the Chrome 152+ profiles use it
+(`shuffled` for 152, `sorted` for 154).
 
 ### `signature_algorithms`: in order
 
@@ -359,6 +454,16 @@ Unknown names are a hard error, not a silent skip.
   exact encoding, so there is no separate ALPS config. The HTTP/2 profile is
   read from the file named by `http2_path` on the TLS layer. If `settings` or
   `settings_order` is missing, the payload is empty.
+- **`alps_use_new_codepoint`**: which ALPS extension codepoint to use: `true` —
+  the new one (`17513`, standard in modern browsers), `false` — the old
+  experimental one. Only meaningful together with `alps = true`. Defaults to
+  `false`, matching wreq; `true` is only needed to emulate Chrome 132+.
+- **`aes_hw_override`**: overrides BoringSSL's AES hardware acceleration
+  decision (`SSL_CTX_set_aes_hw_override`). `true` — always treat AES as
+  hardware-accelerated (browser profiles do this), `false` — always
+  software; the key omitted — the library decides from the CPU. It affects the
+  AES-vs-CHACHA20 preference on clients without acceleration, i.e. the actual
+  handshake bytes.
 
 ### `delegated_credentials`: opt-in extension
 

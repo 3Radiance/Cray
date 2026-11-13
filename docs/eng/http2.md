@@ -148,6 +148,8 @@ exists:
 | `initial_window_size` | Per-stream flow-control window. |
 | `max_frame_size` | Max frame payload size. |
 | `max_header_list_size` | Max header list size. Omit to leave it out. |
+| `enable_connect_protocol` | Extended CONNECT (RFC 8441). Omit to leave it out. |
+| `no_rfc7540_priorities` | RFC 9113 priorities instead of RFC 7540. Omit to leave it out. |
 
 If the whole `[settings]` table is missing, no values are customized and
 the library defaults apply.
@@ -164,11 +166,20 @@ MAX_CONCURRENT_STREAMS
 INITIAL_WINDOW_SIZE
 MAX_FRAME_SIZE
 MAX_HEADER_LIST_SIZE
+ENABLE_CONNECT_PROTOCOL
+NO_RFC7540_PRIORITIES
 ```
 
 Names are case-insensitive. An unknown name is an error when the outbound layer
 is built, so a typo stops startup instead of silently producing a wrong
 fingerprint.
+
+Ordering is preserved for parameters without a value in `[settings]`: if such a
+parameter is ever enabled, it lands at its own position in the frame rather
+than at the end. Browser profiles keep all eight names in the list but do not
+assign values to all of them: `ENABLE_CONNECT_PROTOCOL` and
+`NO_RFC7540_PRIORITIES` appear in the order for Chrome/Firefox/Opera/Safari and
+OkHttp, while only Safari 18+ sets a value (both `true`).
 
 ### `connection_window_update`: connection window
 

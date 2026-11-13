@@ -115,7 +115,7 @@ tcp socket ──▶ tls layer ──▶ next layer (http2, protocol, ...)
 
 Callback ALPN перебирает список клиента по порядку и выбирает первый протокол, который также присутствует в списке `alpn` на inbound. Если совпадений нет, ALPN не согласовывается.
 
-Outbound-коннектор собирается в `tls_builder` (`layers/src/fingerprint/tls/builder.rs`) в следующем порядке: хранилище корневых сертификатов Chromium → наборы шифров → ALPN → кривые → алгоритмы подписи → ограничение размера записи → сжатие сертификатов → GREASE → перестановка расширений → OCSP → SCT → билет сессии → делегированные учётные данные → порядок расширений. ALPS добавляется отдельно для каждого соединения.
+Outbound-коннектор собирается в `tls_builder` (`layers/src/fingerprint/tls/builder.rs`) в следующем порядке: хранилище корневых сертификатов Chromium → наборы шифров → границы версий TLS → ALPN → кривые → алгоритмы подписи → ограничение размера записи → сжатие сертификатов → GREASE → аппаратное ускорение AES → перестановка расширений → OCSP → SCT → билет сессии → делегированные учётные данные → порядок расширений → доверенные корневые ID. ALPS и key_shares добавляются отдельно для каждого соединения.
 
 ### Проверка сертификата сервера (outbound)
 
@@ -151,6 +151,12 @@ status_request = false
 signed_certificate_timestamp = false
 session_ticket = false
 alps = false
+alps_use_new_codepoint = false
+aes_hw_override = false
+min_tls_version = "tls1.2"
+max_tls_version = "tls1.3"
+# key_shares = ["X25519MLKEM768", "X25519", "P-256"]   группы в key_share расширении
+# trust_anchors = "sorted"                             "sorted" | "shuffled" (chrome 152+)
 # extensions_order = [ ... ]    не указывайте, если не нужен фиксированный порядок
 # delegated_credentials = [ ... ]
 # record_size_limit = 16385
@@ -164,9 +170,7 @@ alps = false
 
 BoringSSL хранит наборы шифров TLS 1.3 и TLS 1.2 в двух отдельных внутренних списках. Объединить их в произвольном порядке невозможно: BoringSSL всегда выводит их двумя последовательными блоками — сначала TLS 1.3, затем TLS 1.2, независимо от того, как они перемешаны в конфигурации. Настоящие браузеры ведут себя так же, поэтому это ограничение не требует обходных решений.
 
-Для TLS 1.3 используются имена наборов шифров в формате IANA `TLS_<AEAD>_<HASH>`. Для TLS 1.2 используются короткие имена в стиле OpenSSL, например `ECDHE-ECDSA-AES128-GCM-SHA256`.
-
-TLS 1.3:
+Для TLS 1.3 используются имена наборов шифров в формате IANA `TLS_<AEAD>_<HASH>` — всего три, по одному на каждый допустимый AEAD:
 
 ```text
 TLS_AES_128_GCM_SHA256
@@ -174,31 +178,51 @@ TLS_AES_256_GCM_SHA384
 TLS_CHACHA20_POLY1305_SHA256
 ```
 
-TLS 1.2:
+Для TLS 1.2 принимаются и короткие имена в стиле OpenSSL, и полные имена IANA (`TLS_<...>`) — BoringSSL распознаёт оба формата. Полный список TLS 1.2, сгруппированный по обмену ключами:
 
 ```text
-ECDHE-ECDSA-AES128-GCM-SHA256
-ECDHE-ECDSA-AES256-GCM-SHA384
-ECDHE-RSA-AES128-GCM-SHA256
-ECDHE-RSA-AES256-GCM-SHA384
-ECDHE-ECDSA-CHACHA20-POLY1305
-ECDHE-RSA-CHACHA20-POLY1305
-ECDHE-ECDSA-AES128-SHA
-ECDHE-RSA-AES128-SHA
-ECDHE-RSA-AES128-SHA256
-ECDHE-ECDSA-AES256-SHA
-ECDHE-RSA-AES256-SHA
-TLS_RSA_WITH_AES_128_GCM_SHA256
-TLS_RSA_WITH_AES_256_GCM_SHA384
-TLS_RSA_WITH_AES_128_CBC_SHA
-TLS_RSA_WITH_AES_256_CBC_SHA
-TLS_RSA_WITH_3DES_EDE_CBC_SHA
-TLS_PSK_WITH_AES_128_CBC_SHA
-TLS_PSK_WITH_AES_256_CBC_SHA
-ECDHE-PSK-AES128-CBC-SHA
-ECDHE-PSK-AES256-CBC-SHA
-ECDHE-PSK-CHACHA20-POLY1305
+# ECDHE + ECDSA
+ECDHE-ECDSA-AES128-GCM-SHA256      (TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+ECDHE-ECDSA-AES256-GCM-SHA384      (TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384)
+ECDHE-ECDSA-CHACHA20-POLY1305      (TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256)
+ECDHE-ECDSA-AES128-SHA             (TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA)
+ECDHE-ECDSA-AES128-SHA256          (TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256)
+ECDHE-ECDSA-AES256-SHA             (TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA)
+ECDHE-ECDSA-AES256-SHA384          (TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384)
+ECDHE-ECDSA-DES-CBC3-SHA           (TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA)
+# ECDHE + RSA
+ECDHE-RSA-AES128-GCM-SHA256        (TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256)
+ECDHE-RSA-AES256-GCM-SHA384        (TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384)
+ECDHE-RSA-CHACHA20-POLY1305        (TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+ECDHE-RSA-AES128-SHA               (TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA)
+ECDHE-RSA-AES128-SHA256            (TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256)
+ECDHE-RSA-AES256-SHA               (TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA)
+ECDHE-RSA-AES256-SHA384            (TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384)
+ECDHE-RSA-DES-CBC3-SHA             (TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA)
+# DHE + RSA
+DHE-RSA-AES128-GCM-SHA256          (TLS_DHE_RSA_WITH_AES_128_GCM_SHA256)
+DHE-RSA-AES256-GCM-SHA384          (TLS_DHE_RSA_WITH_AES_256_GCM_SHA384)
+DHE-RSA-AES128-SHA                 (TLS_DHE_RSA_WITH_AES_128_CBC_SHA)
+DHE-RSA-AES128-SHA256              (TLS_DHE_RSA_WITH_AES_128_CBC_SHA256)
+DHE-RSA-AES256-SHA                 (TLS_DHE_RSA_WITH_AES_256_CBC_SHA)
+DHE-RSA-AES256-SHA256              (TLS_DHE_RSA_WITH_AES_256_CBC_SHA256)
+# статический RSA
+AES128-GCM-SHA256                  (TLS_RSA_WITH_AES_128_GCM_SHA256)
+AES256-GCM-SHA384                  (TLS_RSA_WITH_AES_256_GCM_SHA384)
+AES128-SHA                         (TLS_RSA_WITH_AES_128_CBC_SHA)
+AES128-SHA256                      (TLS_RSA_WITH_AES_128_CBC_SHA256)
+AES256-SHA                         (TLS_RSA_WITH_AES_256_CBC_SHA)
+AES256-SHA256                      (TLS_RSA_WITH_AES_256_CBC_SHA256)
+DES-CBC3-SHA                       (TLS_RSA_WITH_3DES_EDE_CBC_SHA)
+# PSK (требует настроенный PSK, иначе соединение не состоится)
+ECDHE-PSK-AES128-CBC-SHA           (TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA)
+ECDHE-PSK-AES256-CBC-SHA           (TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA)
+ECDHE-PSK-CHACHA20-POLY1305        (TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256)
+PSK-AES128-CBC-SHA                 (TLS_PSK_WITH_AES_128_CBC_SHA)
+PSK-AES256-CBC-SHA                 (TLS_PSK_WITH_AES_256_CBC_SHA)
 ```
+
+В скобках — IANA-имя того же набора. Имена не из этого списка отклоняются BoringSSL, и соединение падает с ошибкой — опечатку видно сразу.
 
 ### `alpn`: список протоколов
 
@@ -217,8 +241,54 @@ P-521
 X25519
 X25519Kyber768Draft00
 X25519MLKEM768
+P256Kyber768Draft00
 MLKEM1024
+ffdhe2048   (псевдоним: dhe2048)
+ffdhe3072   (псевдоним: dhe3072)
 ```
+
+Порядок в списке — порядок `supported_groups` в `ClientHello`. Именно первая группа (точнее, группы с настроенными key shares, см. ниже) отправляется с готовой шарой ключа, остальные — только как поддерживаемые.
+
+### `key_shares`: группы с готовой шарой ключа
+
+Список групп, для которых в `key_share` расширении отправляется готовый обмен ключами. Позиция расширения управляется через `extensions_order`. Имена совпадают с частью списка `curves`, но список может быть короче:
+
+```text
+X25519
+X25519MLKEM768
+X25519Kyber768Draft00
+P256Kyber768Draft00
+P-256
+P-384
+P-521
+MLKEM1024
+ffdhe2048
+ffdhe3072
+```
+
+Если поле не указано, шары выбирает сам BoringSSL (типично X25519 плюс первая PQ-группа из `curves`). Chrome/Opera/Safari/OkHttp работают именно так — явный список задаёт только Firefox (`["X25519", "P-256"]` у старых версий, `["X25519MLKEM768", "X25519", "P-256"]` у новых). Неверное имя это ошибка при старте. Техническое ограничение btls-0.5.6: API принимает ключевые шары только на соединении, поэтому значение проверяется при загрузке профиля, а ставится в момент рукопожатия.
+
+### `min_tls_version` / `max_tls_version`: границы версий
+
+Ограничивают диапазон версий, предлагаемых в `supported_versions`. Значения нечувствительны к регистру:
+
+```text
+"tls1.0"  (или "tls1")
+"tls1.1"
+"tls1.2"
+"tls1.3"
+```
+
+Оба поля опциональны и по отдельности: не указана нижняя граница — действует минимум BoringSSL, не указана верхняя — максимум. Типовые значения браузеров: `min_tls_version = "tls1.2"`, `max_tls_version = "tls1.3"`; у Safari 15.x минимум `"tls1.0"`.
+
+### `trust_anchors`: доверенные корневые ID
+
+Отправка списка доверенных корневых центров в расширении `trust_anchor_ids` (draft-ietf-tls-trust-anchor-ids): outbound объявляет, какими корневыми сертификатами Chromium он готов доверять серверу. Возможны два значения:
+
+- `"sorted"` — ID корневых сертификатов Chromium в отсортированном виде;
+- `"shuffled"` — те же ID в случайном порядке (устанавливается заново на каждом соединении).
+
+Чтобы не отправлять расширение, не указывайте ключ. Значение используют только профили Chrome 152+ (`shuffled` у 152, `sorted` у 154).
 
 ### `signature_algorithms`: алгоритмы подписи в заданном порядке
 
@@ -305,7 +375,9 @@ zstd
 - **`status_request`** — запрос OCSP stapling. Браузеры отправляют его по умолчанию.
 - **`signed_certificate_timestamp`** — расширение SCT для Certificate Transparency. В браузерах оно также включено по умолчанию.
 - **`session_ticket`** — определяет, отправляется ли расширение `session_ticket`. Коннектор создаётся отдельно для каждого соединения, поэтому возобновление сессии не происходит; параметр управляет только наличием расширения в отпечатке.
+- **`aes_hw_override`** — переопределяет решение BoringSSL об аппаратном ускорении AES (`SSL_CTX_set_aes_hw_override`). `true` — всегда считать AES аппаратно ускоренным (так делают браузерные профили), `false` — всегда программно, ключ не указан — решение принимает библиотека по CPU. Влияет на выбор между AES- и CHACHA20-шифрами на клиентах без ускорения, то есть на фактические байты рукопожатия.
 - **`alps`** — Application-Layer Protocol Settings (настройки протокола прикладного уровня). Отправляет данные ALPS для `h2`, сформированные на основе тех же `settings` и `settings_order`, которые управляют настоящим кадром HTTP/2 SETTINGS (см. [http2.md](http2.md)). Браузеры используют именно такое кодирование, поэтому отдельная конфигурация ALPS не нужна. HTTP/2-профиль читается из файла, указанного в `http2_path` слоя TLS. Если `settings` или `settings_order` отсутствует, полезная нагрузка будет пустой.
+- **`alps_use_new_codepoint`** — номер кодовой точки ALPS-расширения: `true` — новая (`17513`, стандартная у современных браузеров), `false` — старая экспериментальная. Работает только вместе с `alps = true`. По умолчанию `false`, как в wreq; `true` нужен только для подражания Chrome 132+.
 
 ### `delegated_credentials`: расширение, включаемое по желанию
 
