@@ -161,22 +161,6 @@ fn baseline_profiles_are_accepted() {
 }
 
 #[test]
-fn shipped_fingerprint_profiles_are_accepted() {
-    let dir = conf_dir().join("fingerprint/tls");
-    let h2 = conf_dir().join("http2.toml");
-    let mut n = 0;
-    for entry in std::fs::read_dir(&dir).expect("conf/fingerprint/tls") {
-        let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "toml") {
-            n += 1;
-            build_client_paths(path.to_str().unwrap(), h2.to_str().unwrap())
-                .unwrap_or_else(|e| panic!("shipped profile {} rejected: {e}", path.display()));
-        }
-    }
-    assert!(n > 0, "no shipped tls profiles found in {}", dir.display());
-}
-
-#[test]
 fn shipped_example_client_config_is_accepted() {
     let conf = conf_dir();
     let text = std::fs::read_to_string(conf.join("client.toml")).expect("conf/client.toml");
@@ -357,34 +341,37 @@ uuid = "11111111-1111-4111-8111-111111111111"
     engine_build(&cfg).expect("xhttp2 profile must build for alps");
 }
 
-// #[test]
-// fn generated_wreq_emulation_profiles_are_accepted() {
-//     let root = conf_dir().join("fingerprint");
-//     let h2_default = conf_dir().join("http2.toml");
-//     let mut checked = 0;
-//     let dirs = std::fs::read_dir(&root).expect("conf/fingerprint");
-//     for browser in dirs {
-//         let bdir = browser.unwrap().path();
-//         if !bdir.is_dir() || bdir.file_name().unwrap() == "tls" {
-//             continue;
-//         }
-//         for sub in std::fs::read_dir(&bdir).expect("browser dir") {
-//             let sub = sub.unwrap().path();
-//             let tls_path = sub.join("tls.toml");
-//             if !tls_path.is_file() {
-//                 continue;
-//             }
-//             let h2_path = match sub.join("http2.toml") {
-//                 p if p.is_file() => p,
-//                 _ => h2_default.clone(),
-//             };
-//             checked += 1;
-//             build_client_paths(tls_path.to_str().unwrap(), h2_path.to_str().unwrap())
-//                 .unwrap_or_else(|e| panic!("wreq profile {} rejected: {e}", sub.display()));
-//         }
-//     }
-//     assert!(checked > 100, "expected ~139 wreq emulation profiles, found {checked}");
-// }
+#[test]
+fn generated_wreq_emulation_profiles_are_accepted() {
+    let root = conf_dir().join("fingerprint");
+    let h2_default = conf_dir().join("http2.toml");
+    let mut checked = 0;
+    let dirs = std::fs::read_dir(&root).expect("conf/fingerprint");
+    for browser in dirs {
+        let bdir = browser.unwrap().path();
+        if !bdir.is_dir() || bdir.file_name().unwrap() == "tls" {
+            continue;
+        }
+        for sub in std::fs::read_dir(&bdir).expect("browser dir") {
+            let sub = sub.unwrap().path();
+            let tls_path = sub.join("tls.toml");
+            if !tls_path.is_file() {
+                continue;
+            }
+            let h2_path = match sub.join("http2.toml") {
+                p if p.is_file() => p,
+                _ => h2_default.clone(),
+            };
+            checked += 1;
+            build_client_paths(tls_path.to_str().unwrap(), h2_path.to_str().unwrap())
+                .unwrap_or_else(|e| panic!("wreq profile {} rejected: {e}", sub.display()));
+        }
+    }
+    assert!(
+        checked > 100,
+        "expected ~139 wreq emulation profiles, found {checked}"
+    );
+}
 
 #[test]
 fn plain_http2_profile_rejects_xhttp2_sections() {
