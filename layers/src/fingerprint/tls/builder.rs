@@ -8,6 +8,7 @@ use btls::ssl::{
 };
 use btls_sys::SSL_add_application_settings;
 use foreign_types_shared::ForeignType;
+use rand::Rng;
 use std::sync::Arc;
 
 pub fn tls_builder(profile_path: &str) -> Result<SslConnector> {
@@ -25,18 +26,25 @@ pub fn tls_builder(profile_path: &str) -> Result<SslConnector> {
     builder.set_cert_store(store);
 
     set_cipher_suites(&mut builder, &tls)?;
+    set_tls_versions(&mut builder, &tls)?;
     set_alpn_protos(&mut builder, tls.encode_alpn_wire())?;
     set_curves_list(&mut builder, &tls)?;
     set_sigalgs_list(&mut builder, &tls)?;
     set_record_size_limit(&mut builder, &tls);
     set_cert_compression(&mut builder, &tls)?;
     set_grease(&mut builder, &tls);
+    set_aes_hw_override(&mut builder, &tls);
     set_permute_extensions(&mut builder, &tls);
     set_status_request(&mut builder, &tls);
     set_signed_certificate_timestamp(&mut builder, &tls);
     set_session_ticket(&mut builder, &tls);
     set_delegated_credentials(&mut builder, &tls)?;
     set_extensions_order(&mut builder, &tls)?;
+    set_trust_anchors(&mut builder, &tls)?;
+    // key_shares is only settable per-connection in btls 0.5.6 (Ssl, not
+    // SslContextBuilder); validate the profile here and apply per-Ssl in
+    // client_handshake next to set_alps.
+    tls.parse_key_shares()?;
 
     let connector = builder.build();
 
@@ -127,6 +135,75 @@ pub fn set_curves_list(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Resu
     builder
         .set_curves_list(&curve_list)
         .map_err(|e| anyhow::anyhow!("[TLS] Failed to set curves: {e}"))?;
+    Ok(())
+}
+
+pub fn set_key_shares(ssl: &mut Ssl, tls: &TlsConfig) -> Result<()> {
+    if let Some(shares) = tls.parse_key_shares()? {
+        ssl.set_client_key_shares(&shares)
+            .map_err(|e| anyhow::anyhow!("[TLS] Failed to set key shares: {e}"))?;
+    }
+    Ok(())
+}
+
+pub fn set_tls_versions(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {
+    if let Some(v) = tls.parse_min_tls_version()? {
+        builder
+            .set_min_proto_version(Some(v))
+            .map_err(|e| anyhow::anyhow!("[TLS] Failed to set min TLS version: {e}"))?;
+    }
+    if let Some(v) = tls.parse_max_tls_version()? {
+        builder
+            .set_max_proto_version(Some(v))
+            .map_err(|e| anyhow::anyhow!("[TLS] Failed to set max TLS version: {e}"))?;
+    }
+    Ok(())
+}
+
+pub fn set_aes_hw_override(builder: &mut SslContextBuilder, tls: &TlsConfig) {
+    if let Some(v) = tls.aes_hw_override {
+        builder.set_aes_hw_override(v);
+    }
+}
+
+pub fn set_trust_anchors(builder: &mut SslContextBuilder, tls: &TlsConfig) -> Result<()> {
+    let Some(mode) = &tls.trust_anchors else {
+        return Ok(());
+    };
+
+    let mut ids: Vec<&'static [u8]> = chromium_roots::trust_anchor_ids().to_vec();
+    match mode.to_ascii_lowercase().as_str() {
+        "sorted" => ids.sort_unstable(),
+        "shuffled" => {
+            let mut rng = rand::rng();
+            for i in (1..ids.len()).rev() {
+                ids.swap(i, rng.random_range(0..=i));
+            }
+        }
+        other => {
+            anyhow::bail!("[TLS] invalid trust_anchors: '{other}' (expected sorted or shuffled)")
+        }
+    }
+
+    let mut encoded = Vec::new();
+    for id in &ids {
+        if id.is_empty() || id.len() > 255 {
+            anyhow::bail!("[TLS] trust anchor id has invalid length {}", id.len());
+        }
+        encoded.push(id.len() as u8);
+        encoded.extend_from_slice(id);
+    }
+
+    let res = unsafe {
+        btls_sys::SSL_CTX_set1_requested_trust_anchors(
+            builder.as_ptr(),
+            encoded.as_ptr(),
+            encoded.len(),
+        )
+    };
+    if res != 1 {
+        anyhow::bail!("[TLS] SSL_CTX_set1_requested_trust_anchors failed");
+    }
     Ok(())
 }
 
@@ -231,7 +308,7 @@ pub fn set_alps(ssl: &mut Ssl, http2: Arc<Http2Config>, tls: Arc<TlsConfig>) {
     if let Some(alps) = &tls.alps
         && *alps
     {
-        ssl.set_alps_use_new_codepoint(true);
+        ssl.set_alps_use_new_codepoint(tls.alps_use_new_codepoint.unwrap_or(false));
 
         let alps_payload = http2.encode_alps_payload();
         let proto = b"h2";

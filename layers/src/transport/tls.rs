@@ -1,5 +1,5 @@
 use crate::fingerprint::tls::{
-    builder::{set_alpn_select_callback, set_alps},
+    builder::{set_alpn_select_callback, set_alps, set_key_shares},
     cert::CertPair,
 };
 use crate::profiles::{
@@ -108,6 +108,7 @@ where
     let connector = get_or_build_tls_connector(tls_path)?;
     let config = get_tls(tls_path)?;
     let mut ssl = connector.configure()?.into_ssl(sni)?;
+    set_key_shares(&mut ssl, &config)?;
     if config.alps == Some(true) {
         let http2_path = http2_path.ok_or_else(|| {
             anyhow::anyhow!(

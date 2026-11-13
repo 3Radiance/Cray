@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use btls::ssl::ExtensionType;
+use btls::ssl::{ExtensionType, KeyShare, SslVersion};
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize, Clone)]
@@ -12,6 +12,8 @@ pub struct TlsConfig {
     #[serde(deserialize_with = "deserialize_lines", default)]
     pub curves: Option<Vec<String>>,
     #[serde(deserialize_with = "deserialize_lines", default)]
+    pub key_shares: Option<Vec<String>>,
+    #[serde(deserialize_with = "deserialize_lines", default)]
     pub signature_algorithms: Option<Vec<String>>,
     #[serde(deserialize_with = "deserialize_lines", default)]
     pub extensions_order: Option<Vec<String>>,
@@ -20,10 +22,15 @@ pub struct TlsConfig {
     pub status_request: Option<bool>,
     pub signed_certificate_timestamp: Option<bool>,
     pub alps: Option<bool>,
+    pub alps_use_new_codepoint: Option<bool>,
     pub session_ticket: Option<bool>,
     pub grease_enabled: Option<bool>,
     pub enable_ech: Option<bool>,
     pub enable_ech_grease: Option<bool>,
+    pub aes_hw_override: Option<bool>,
+    pub min_tls_version: Option<String>,
+    pub max_tls_version: Option<String>,
+    pub trust_anchors: Option<String>,
     #[serde(deserialize_with = "deserialize_lines", default)]
     pub delegated_credentials: Option<Vec<String>>,
     pub record_size_limit: Option<u16>,
@@ -107,6 +114,52 @@ impl TlsConfig {
             })
             .transpose()
     }
+
+    pub fn parse_key_shares(&self) -> anyhow::Result<Option<Vec<KeyShare>>> {
+        self.key_shares
+            .as_ref()
+            .map(|shares| {
+                shares
+                    .iter()
+                    .map(|s| match s.as_str() {
+                        "X25519" => Ok(KeyShare::X25519),
+                        "X25519MLKEM768" => Ok(KeyShare::X25519_MLKEM768),
+                        "X25519Kyber768Draft00" => Ok(KeyShare::X25519_KYBER768_DRAFT00),
+                        "P256Kyber768Draft00" => Ok(KeyShare::P256_KYBER768_DRAFT00),
+                        "P-256" => Ok(KeyShare::P256),
+                        "P-384" => Ok(KeyShare::P384),
+                        "P-521" => Ok(KeyShare::P521),
+                        "MLKEM1024" => Ok(KeyShare::MLKEM1024),
+                        "ffdhe2048" => Ok(KeyShare::FFDHE2048),
+                        "ffdhe3072" => Ok(KeyShare::FFDHE3072),
+                        _ => Err(anyhow::anyhow!("unknown key share: {s}")),
+                    })
+                    .collect()
+            })
+            .transpose()
+    }
+
+    pub fn parse_min_tls_version(&self) -> anyhow::Result<Option<SslVersion>> {
+        parse_tls_version("min_tls_version", self.min_tls_version.as_deref())
+    }
+
+    pub fn parse_max_tls_version(&self) -> anyhow::Result<Option<SslVersion>> {
+        parse_tls_version("max_tls_version", self.max_tls_version.as_deref())
+    }
+}
+
+fn parse_tls_version(field: &str, v: Option<&str>) -> anyhow::Result<Option<SslVersion>> {
+    let Some(v) = v else {
+        return Ok(None);
+    };
+    let version = match v.to_ascii_lowercase().as_str() {
+        "tls1" | "tls1.0" => SslVersion::TLS1,
+        "tls1.1" => SslVersion::TLS1_1,
+        "tls1.2" => SslVersion::TLS1_2,
+        "tls1.3" => SslVersion::TLS1_3,
+        _ => anyhow::bail!("invalid {field}: '{v}' (expected tls1.0, tls1.1, tls1.2 or tls1.3)"),
+    };
+    Ok(Some(version))
 }
 
 fn deserialize_lines<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
