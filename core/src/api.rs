@@ -39,7 +39,7 @@ pub enum Port {
     Done,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ports {
     pub takes: Port,
     pub gives: Port,
@@ -66,6 +66,10 @@ impl Ports {
         takes: Port::Stream,
         gives: Port::Done,
     };
+    pub const INIT: Ports = Ports {
+        takes: Port::Nothing,
+        gives: Port::Nothing,
+    };
 }
 
 pub enum Input {
@@ -87,6 +91,7 @@ pub enum Output {
     Streams(BoxedIncoming),
     Done,
     Consumed,
+    Skip(Input),
 }
 
 pub trait Layer: Send + Sync + 'static {

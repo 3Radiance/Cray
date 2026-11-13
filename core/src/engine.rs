@@ -1,5 +1,7 @@
 use crate::api::{BoxFuture, BuildCx, ConnectRequest, Input, Output, Port, Side};
-use crate::chain::{Chain, Entry, build_entries, check_links, check_requires, feeds_stream};
+use crate::chain::{
+    Chain, Entry, build_entries, check_links, check_requires, feeds_stream, last_stream_giver,
+};
 use crate::config::AppConfig;
 use crate::cx::{Cx, Key, key};
 use crate::dial::Dialer;
@@ -74,10 +76,11 @@ impl Engine {
 
         check_links(&head, "inbound")?;
         check_links(&dial, "outbound")?;
+        let last = last_stream_giver(&head).expect("checked");
         ensure!(
-            feeds_stream(head.last().expect("checked").layer.ports().gives),
+            feeds_stream(last.layer.ports().gives),
             "inbound: last layer '{}' must give streams for the terminal",
-            head.last().expect("checked").name
+            last.name
         );
         for e in &dial {
             ensure!(
@@ -176,6 +179,7 @@ fn drive(eng: Arc<Engine>, i: usize, input: Input, mut cx: Cx) -> BoxFuture<'sta
                 eng.head.entries[i].name
             ),
             Output::Consumed => Ok(()),
+            Output::Skip(inp) => drive(eng, i + 1, inp, cx).await,
         }
     })
 }

@@ -1,4 +1,4 @@
-use crate::api::{BuildCx, Layer, Port};
+use crate::api::{BuildCx, Layer, Port, Ports};
 use crate::config::{AppConfig, LayerSpec};
 use crate::cx::Key;
 use crate::registry::Registry;
@@ -46,7 +46,11 @@ fn feeds(gives: Port, takes: Port) -> bool {
     matches!((gives, takes), (Port::Stream | Port::Streams, Port::Stream))
 }
 pub(crate) fn check_links(entries: &[Entry], label: &str) -> Result<()> {
-    let first = entries
+    let layers: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| e.layer.ports() != Ports::INIT)
+        .collect();
+    let first = layers
         .first()
         .ok_or_else(|| anyhow!("{label}: no layers"))?;
     ensure!(
@@ -54,7 +58,7 @@ pub(crate) fn check_links(entries: &[Entry], label: &str) -> Result<()> {
         "{label}: first layer '{}' must be a source (tcp, unix...)",
         first.name
     );
-    for w in entries.windows(2) {
+    for w in layers.windows(2) {
         let (a, b) = (w[0].layer.ports(), w[1].layer.ports());
         ensure!(
             feeds(a.gives, b.takes),
@@ -70,6 +74,13 @@ pub(crate) fn check_links(entries: &[Entry], label: &str) -> Result<()> {
 
 pub(crate) fn feeds_stream(gives: Port) -> bool {
     feeds(gives, Port::Stream)
+}
+
+pub(crate) fn last_stream_giver(entries: &[Entry]) -> Option<&Entry> {
+    entries
+        .iter()
+        .rev()
+        .find(|e| e.layer.ports() != Ports::INIT)
 }
 
 pub(crate) fn check_requires(
