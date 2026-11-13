@@ -79,7 +79,7 @@ How it behaves:
   average delay of 25 ms, one direction cannot exceed roughly 640 KiB/s. Keep
   delays small, or accept the cost on bulk traffic.
 - The random numbers come from a per-connection seeded generator (one
-  `fastrand::Rng` per stream). The distribution is uniform and not
+  `rand::rngs::SmallRng` per stream). The distribution is uniform and not
   cryptographic.
 
 What it does and does not do: jitter changes **when** packets leave. It does not
