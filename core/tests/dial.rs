@@ -40,6 +40,10 @@ impl Layer for Dst {
     fn requires(&self) -> Vec<Key> {
         vec![key::<ConnectRequest>()]
     }
+
+    fn provides(&self) -> Vec<Key> {
+        vec![key::<ConnectRequest>()]
+    }
     fn call<'a>(&'a self, _i: Input, cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
             let addr = cx
