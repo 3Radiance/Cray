@@ -81,6 +81,8 @@ pub struct Settings {
     pub initial_window_size: Option<u32>,
     pub max_frame_size: Option<u32>,
     pub max_header_list_size: Option<u32>,
+    pub enable_connect_protocol: Option<bool>,
+    pub no_rfc7540_priorities: Option<bool>,
 }
 
 impl Http2Config {
@@ -166,6 +168,8 @@ impl Http2Config {
                         "initial_window_size" => Ok(SettingId::InitialWindowSize),
                         "max_frame_size" => Ok(SettingId::MaxFrameSize),
                         "max_header_list_size" => Ok(SettingId::MaxHeaderListSize),
+                        "enable_connect_protocol" => Ok(SettingId::EnableConnectProtocol),
+                        "no_rfc7540_priorities" => Ok(SettingId::NoRfc7540Priorities),
                         _ => Err(anyhow::anyhow!("unknown setting: {name}")),
                     })
                     .collect()
@@ -269,6 +273,18 @@ impl Http2Config {
                         if let Some(val) = settings.max_header_list_size {
                             bytes.extend_from_slice(&6u16.to_be_bytes());
                             bytes.extend_from_slice(&val.to_be_bytes());
+                        }
+                    }
+                    "enable_connect_protocol" => {
+                        if let Some(val) = settings.enable_connect_protocol {
+                            bytes.extend_from_slice(&8u16.to_be_bytes());
+                            bytes.extend_from_slice(&(val as u32).to_be_bytes());
+                        }
+                    }
+                    "no_rfc7540_priorities" => {
+                        if let Some(val) = settings.no_rfc7540_priorities {
+                            bytes.extend_from_slice(&9u16.to_be_bytes());
+                            bytes.extend_from_slice(&(val as u32).to_be_bytes());
                         }
                     }
                     _ => {}

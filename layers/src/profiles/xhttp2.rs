@@ -91,6 +91,8 @@ pub struct Settings {
     pub initial_window_size: Option<u32>,
     pub max_frame_size: Option<u32>,
     pub max_header_list_size: Option<u32>,
+    pub enable_connect_protocol: Option<bool>,
+    pub no_rfc7540_priorities: Option<bool>,
 }
 
 impl Http2Config {
@@ -301,6 +303,8 @@ impl From<&Http2Config> for PlainConfig {
                 initial_window_size: s.initial_window_size,
                 max_frame_size: s.max_frame_size,
                 max_header_list_size: s.max_header_list_size,
+                enable_connect_protocol: s.enable_connect_protocol,
+                no_rfc7540_priorities: s.no_rfc7540_priorities,
             }),
             settings_order: x.settings_order.clone(),
             connection_window_update: x.connection_window_update,

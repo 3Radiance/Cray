@@ -83,6 +83,14 @@ pub fn set_settings_frame(
         if let Some(v) = settings.max_header_list_size {
             builder.max_header_list_size(v);
         }
+
+        if let Some(v) = settings.enable_connect_protocol {
+            builder.enable_connect_protocol(v);
+        }
+
+        if let Some(v) = settings.no_rfc7540_priorities {
+            builder.no_rfc7540_priorities(v);
+        }
     }
 
     Ok(())
