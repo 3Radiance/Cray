@@ -25,7 +25,7 @@ fn self_signed(dir: &Path, cn: &str) -> (PathBuf, PathBuf) {
     let mut cert = X509::builder().expect("x509 builder");
     cert.set_version(2).expect("version");
     let serial =
-        Asn1Integer::from_bn(&BigNum::from_u32(fastrand::u32(1..1 << 31)).expect("bignum"))
+        Asn1Integer::from_bn(&BigNum::from_u32(rand::random_range(1..1 << 31)).expect("bignum"))
             .expect("serial");
     cert.set_serial_number(&serial).expect("serial");
     cert.set_not_before(&Asn1Time::days_from_now(0).expect("not before"))
@@ -49,7 +49,7 @@ fn tmpdir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "cray-tls-test-{tag}-{}-{:x}",
         std::process::id(),
-        fastrand::u64(..)
+        rand::random::<u64>()
     ));
     std::fs::create_dir_all(&dir).expect("tempdir");
     dir

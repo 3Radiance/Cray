@@ -9,7 +9,7 @@ fn make_h2_profile(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "cray-xhttp2-test-{tag}-{}-{}",
         std::process::id(),
-        fastrand::u64(..)
+        rand::random::<u64>()
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let profile_path = dir.join("profile.toml");
@@ -201,7 +201,11 @@ async fn test_xhttp2_large_buffers_throughput() {
     const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30);
 
     for round in 0..ROUNDS {
-        let method = if fastrand::bool() { "POST" } else { "PUT" };
+        let method = if rand::random::<bool>() {
+            "POST"
+        } else {
+            "PUT"
+        };
 
         let profile = make_h2_profile(&format!("stress-{round}"));
         let profile_str = profile.to_str().unwrap();
@@ -365,7 +369,7 @@ fn write_profile(tag: &str, content: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "cray-xhttp2-test-{tag}-{}-{}",
         std::process::id(),
-        fastrand::u64(..)
+        rand::random::<u64>()
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let profile_path = dir.join("profile.toml");
@@ -531,7 +535,7 @@ async fn test_xhttp2_reject_custom_page() {
     let body_path = std::env::temp_dir().join(format!(
         "cray-xhttp2-reject-{}-{}.html",
         std::process::id(),
-        fastrand::u64(..)
+        rand::random::<u64>()
     ));
     std::fs::write(&body_path, html).expect("write reject page");
 

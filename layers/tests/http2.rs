@@ -8,7 +8,7 @@ fn write_profile(tag: &str, content: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "cray-h2-test-{tag}-{}-{}",
         std::process::id(),
-        fastrand::u64(..)
+        rand::random::<u64>()
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let profile_path = dir.join("profile.toml");
@@ -212,7 +212,7 @@ async fn test_http2_response_headers_and_reject_page() {
     let body_path = std::env::temp_dir().join(format!(
         "cray-h2-reject-{}-{}.html",
         std::process::id(),
-        fastrand::u64(..)
+        rand::random::<u64>()
     ));
     std::fs::write(&body_path, html).expect("write reject page");
 
