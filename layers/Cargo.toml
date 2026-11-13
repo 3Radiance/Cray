@@ -13,7 +13,6 @@ toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-fastrand.workspace = true
 httparse.workspace = true
 bytes.workspace = true
 http.workspace = true
@@ -33,6 +32,9 @@ tokio-util.workspace = true
 futures-util.workspace = true
 tokio-tun.workspace = true
 smoltcp.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

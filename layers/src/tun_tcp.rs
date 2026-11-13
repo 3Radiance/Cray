@@ -53,15 +53,27 @@ impl Layer for TunTcp {
 
     fn call<'a>(&'a self, _input: Input, _cx: &'a mut Cx) -> BoxFuture<'a, Result<Output>> {
         Box::pin(async move {
-            let socket = TcpSocket::new_v4()?;
-            if let Some(protect) = get_protect() {
-                protect.protect(socket.as_fd())?;
-            } else {
-                return Err(anyhow!("Protect dont found exit"));
-            }
-            let stream = socket.connect(self.addr).await?;
+            if self.addr.is_ipv4() {
+                let socket = TcpSocket::new_v4()?;
+                if let Some(protect) = get_protect() {
+                    protect.protect(socket.as_fd())?;
+                } else {
+                    return Err(anyhow!("Protect dont found exit"));
+                }
+                let stream = socket.connect(self.addr).await?;
 
-            Ok(Output::Stream(Box::pin(stream)))
+                Ok(Output::Stream(Box::pin(stream)))
+            } else {
+                let socket = TcpSocket::new_v6()?;
+                if let Some(protect) = get_protect() {
+                    protect.protect(socket.as_fd())?;
+                } else {
+                    return Err(anyhow!("Protect dont found exit"));
+                }
+                let stream = socket.connect(self.addr).await?;
+
+                Ok(Output::Stream(Box::pin(stream)))
+            }
         })
     }
 }
