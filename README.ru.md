@@ -214,7 +214,7 @@ type = "tcp"
 
 ## Профили
 
-TLS и HTTP/2 настраиваются полностью. Cray позволяет задавать значения вручную; пресетов пока нет.
+TLS и HTTP/2 настраиваются полностью. Cray позволяет задавать значения вручную, а готовые пресеты лежат в [`conf/fingerprint/`](conf/fingerprint/README.ru.md): браузерные профили, перенесённые из wreq-util скриптом, поэтому в них могут быть неточности.
 
 ```toml
 # tls.toml
@@ -250,7 +250,8 @@ permute_extensions = true
 | `core/` | Движок: контракт слоя (`Layer`), `Registry`, сборка и проверка цепочек, исполнитель `drive`. Не знает имён слоёв. |
 | `layers/` | Все слои по видам: `transport/` (`tls`, `http2`, `xhttp2`), `proxy/` (`http-proxy`), `protocol/` (`vless`, `pipe`), `wrappers/` (`jitter`, `fragment`, `pad`, `auth`), а также `tcp`, `unix`, билдеры `fingerprint/` и загрузка `profiles/`. Новый слой это один файл плюс одна строка `register`. |
 | `cray/` | Бинарник: разбирает аргументы, регистрирует слои, собирает движок, запускает. |
-| `conf/` | Примеры конфигов и профилей. |
+| `conf/` | Примеры конфигов и профилей; в `conf/fingerprint/` лежат браузерные пресеты, сгенерированные из wreq-util. |
+| `tools/` | `fetch_wreq_profiles.sh` скачивает исходники wreq-util, `gen.py` превращает их в `conf/fingerprint/`. |
 | `docs/` | Справочники по слоям и профилям на английском (`eng/`) и русском (`ru/`). |
 
 ---
@@ -300,7 +301,7 @@ RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 
 - `auth` v1 несёт только тэг: защиты от повторного воспроизведения пока нет.
 - `xhttp2` `PacketUp`: сервер пока не ограничивает буфер реордера и число сессий. Простаивающие и несопоставленные сессии удаляет встроенный GC. Каждая запись уходит сразу отдельным запросом — write-through по дизайну, без буферизации записей.
-- Пресетов TLS и HTTP/2 нет, отпечатки задаются вручную.
+- Пресеты TLS и HTTP/2 в `conf/fingerprint/` сгенерированы скриптом и могут содержать ошибки. Поля, которые stock btls выразить не может (подписи ML-DSA, `grease_sigalgs_enabled`, `random_aes_hw_override`, PSK), пропущены; см. [conf/fingerprint/README.ru.md](conf/fingerprint/README.ru.md).
 
 ### Планы
 

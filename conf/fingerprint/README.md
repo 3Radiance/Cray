@@ -16,6 +16,14 @@ convenience — they are presets and starting points, not a hard dependency:
 if you need your own fingerprint, take the closest file and tweak the values
 however you like.
 
+> **⚠ Generated files.** Every `.toml` here was produced by `tools/gen.py`
+> from the wreq-util sources: nobody wrote them by hand or captured them from
+> real browsers. The converter is not perfect, so individual values may contain
+> mistakes or typos. The test below only proves that a profile is accepted by
+> `Engine::build`, not that the fingerprint matches the real browser. Compare a
+> profile with a real capture before relying on it, and fix systematic problems
+> in `tools/gen.py`.
+
 ## Structure
 
     conf/fingerprint/<browser>/<profile>/
@@ -74,7 +82,22 @@ Everything else from the old "missing" list is now supported by the schema:
 
 ## Generation
 
-The profiles are generated from the wreq-util sources by the script
-`tools/gen.py` (it parses the Rust sources and writes the TOML files).
+The profiles are generated from the wreq-util sources:
+
+    tools/fetch_wreq_profiles.sh   # copies src/emulate/profile into tools/profile/
+    python3 tools/gen.py           # parses the Rust sources, writes conf/fingerprint/**
+
+`fetch_wreq_profiles.sh` takes wreq-util at a pinned revision
+(`917d2581d6761a94db66466caa6c2eb4d4cdbd43`, the one the committed files were
+generated from); pass another commit or tag as the first argument to try a
+newer one. `tools/profile/` is git-ignored and is not part of this repository.
 Hand-editing the files is fine and expected — but regenerating wipes manual
 edits, so persistent differences should go into `tools/gen.py` instead.
+
+## License and attribution
+
+The profile values come from [wreq-util](https://github.com/0x676e67/wreq-util),
+© 0x676e67. At the pinned revision it is released under the Apache License 2.0;
+older releases (for example 3.0.0-rc.x) were LGPL-3.0, so check the license of
+the revision you generate from. Cray itself is GPL-3.0, which Apache-2.0 code
+is compatible with. If you redistribute these files, keep this attribution.
