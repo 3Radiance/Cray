@@ -2,6 +2,7 @@ use crate::deserialize_from_str;
 use anyhow::{Result, bail};
 use cray_core::log_tag;
 use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Input, Layer, Output, Ports};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use serde::Deserialize;
 use std::io;
 use std::pin::Pin;
@@ -57,7 +58,7 @@ pub struct JitterStream<S> {
     slept: bool,
     armed: bool,
     sleep: Pin<Box<Sleep>>,
-    rng: fastrand::Rng,
+    rng: SmallRng,
 }
 
 impl<S> JitterStream<S> {
@@ -71,7 +72,7 @@ impl<S> JitterStream<S> {
             slept: false,
             armed: false,
             sleep: initial_sleep,
-            rng: fastrand::Rng::new(),
+            rng: SmallRng::from_os_rng(),
         }
     }
 
@@ -89,7 +90,7 @@ impl<S> JitterStream<S> {
 }
 
 impl JitterDelay {
-    pub fn sample(&self, rng: &mut fastrand::Rng) -> Duration {
+    pub fn sample(&self, rng: &mut SmallRng) -> Duration {
         match self {
             JitterDelay::Fixed(d) => *d,
             JitterDelay::Range(min, max) => {
@@ -97,7 +98,7 @@ impl JitterDelay {
                 if range_ms == 0 {
                     return *min;
                 }
-                *min + Duration::from_millis(rng.u64(0..=range_ms))
+                *min + Duration::from_millis(rng.random_range(0..=range_ms))
             }
         }
     }
