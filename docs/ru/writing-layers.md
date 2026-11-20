@@ -27,7 +27,9 @@
 либо `Input::Stream(BoxedStream)`. `Output` — один из вариантов: `Stream`
 (один стрим следующему слою), `Streams` (акцептор соединений — каждое
 принятое соединение запускает новый проход оставшейся цепочки), `Done`
-(терминальный слой закончил) или `Consumed`.
+(терминальный слой закончил), `Consumed` или `Skip(Input)` (передать
+полученный вход следующему слою без изменений — используется `INIT`-слоями,
+см. ниже; и движок, и dialer пробрасывают его как есть).
 
 С точки зрения движка сессии без состояния: слой, которому нужно общее
 состояние (таблицы сессий, счётчики), владеет им внутри себя.
@@ -159,24 +161,35 @@ pub fn build(params: &toml::Table, _bcx: &BuildCx) -> Result<Box<dyn Layer>> {
 
 ### 5. Зарегистрируйте слой
 
-Имена слоёв — ключи в `Registry`, который наполняется в
-[`layers/src/lib.rs`](../../layers/src/lib.rs):
+Имена слоёв — ключи в `Registry`. Каждый модуль слоя регистрирует себя сам
+через макрос `submit_layer!` (на базе `inventory`), а
+[`layers/src/lib.rs`](../../layers/src/lib.rs) их собирает:
 
 ```rust
-pub fn register(r: &mut Registry) {
-    // ...
-    r.add("xhttp2", transport::xhttp2::build);
-    r.add("pipe", protocol::pipe::build);
+use crate::submit_layer;
+
+submit_layer!("fragment", build);
+```
+
+```rust
+inventory::collect!(LayerEntry);
+
+pub fn register_all(r: &mut Registry) {
+    for entry in inventory::iter::<LayerEntry> {
+        r.add(entry.name, entry.factory);
+    }
 }
 ```
 
-Создайте файл модуля (например, `layers/src/wrappers/fragment.rs`) и
-добавьте `pub mod fragment;` в родительский `mod.rs`. Бинарник в
-`cray/src/main.rs` вызывает `cray_layers::register()`, так что больше ничего
-не нужно. Повторная регистрация имени паникует на старте.
+Создайте файл модуля (например, `layers/src/wrappers/fragment.rs`),
+добавьте `pub mod fragment;` в родительский `mod.rs` и положите одну строку
+`submit_layer!(...)` в начало модуля. Бинарник в `cray/src/main.rs` вызывает
+`cray_layers::register()`, так что больше ничего не нужно. Повторная
+регистрация имени паникует на старте, поэтому держите имена
+уникальными.
 
-Имя в `r.add("...")` — это значение `type = "..."` в TOML. Имена слоёв —
-строчные, через дефис.
+Имя в `submit_layer!("...")` — это значение `type = "..."` в TOML. Имена
+слоёв — строчные, через дефис.
 
 ## Понимание `Ports`
 
@@ -191,6 +204,7 @@ pub fn register(r: &mut Registry) {
 | `Ports::WRAP` | `Stream` | `Stream` | Превращает один поток в другой |
 | `Ports::ACCEPT` | `Stream` | `Streams` | Мультиплексирование: принимает запросы на потоке и отдаёт каждый отдельным стримом |
 | `Ports::TERMINAL` | `Stream` | `Done` | Обработчик протокола — потребляет поток |
+| `Ports::INIT` | `Nothing` | `Nothing` | Только настройка: не принимает и не отдаёт стрим — выполняется раз на соединение (например, чтобы положить значения в `Cx`), затем пробрасывает вход дальше через `Output::Skip` |
 
 Настоящие слои:
 
@@ -212,6 +226,11 @@ pub fn register(r: &mut Registry) {
   и ровно один из них — терминальный;
 - каждый слой outbound-цепочки обязан отдавать
   ровно один поток, чтобы им можно было пользоваться для дозвона.
+- `INIT`-слои прозрачны для проверки связей: они пропускаются при проверке
+  первого слоя, соседних связей и последнего отдающего стрим, поэтому могут
+  стоять где угодно в списке (включая начало). Их
+  `requires()`/`provides()` по-прежнему участвуют в проверке `Cx`, а в
+  рантайме они обязаны вернуть `Output::Skip` с полученным входом.
 
 ## Использование `requires()`, `provides()` и `Cx`
 
@@ -440,7 +459,7 @@ RUST_LOG=info,TLS=debug,FRAG=trace ./cray --config client.toml
 
 ## Чек-лист нового слоя
 
-- код: один модуль в `layers/src/`, регистрация в `layers/src/lib.rs`
+- код: один модуль в `layers/src/`, саморегистрация через `submit_layer!`
 - тесты в `layers/tests/`
 - страница в `docs/eng/` **и** `docs/ru/`
 - обновлённые `README.md` / `README.ru.md`, если слой меняет список

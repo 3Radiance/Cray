@@ -27,7 +27,9 @@ Every layer implements the `Layer` trait in `core/src/api.rs`:
 receives) or `Input::Stream(BoxedStream)`. `Output` is one of `Stream` (one
 stream to hand to the next layer), `Streams` (a connection acceptor — each
 accepted stream starts a new run of the rest of the chain), `Done` (terminal
-layer finished) or `Consumed`.
+layer finished), `Consumed`, or `Skip(Input)` (pass the received input to the
+next layer untouched — used by `INIT` layers, see below; both the engine and
+the dialer forward it as-is).
 
 Sessions stay stateless from the engine's point of view: layers that need
 shared state (session tables, counters) own it internally.
@@ -159,24 +161,35 @@ reaches `call()`.
 
 ### 5. Register the layer
 
-Layer names are keys in a `Registry`, populated in
-[`layers/src/lib.rs`](../../layers/src/lib.rs):
+Layer names are keys in a `Registry`. Each layer module self-registers with
+the `submit_layer!` macro (backed by `inventory`), and
+[`layers/src/lib.rs`](../../layers/src/lib.rs) collects them:
 
 ```rust
-pub fn register(r: &mut Registry) {
-    // ...
-    r.add("xhttp2", transport::xhttp2::build);
-    r.add("pipe", protocol::pipe::build);
+use crate::submit_layer;
+
+submit_layer!("fragment", build);
+```
+
+```rust
+inventory::collect!(LayerEntry);
+
+pub fn register_all(r: &mut Registry) {
+    for entry in inventory::iter::<LayerEntry> {
+        r.add(entry.name, entry.factory);
+    }
 }
 ```
 
-Create the module file (for example `layers/src/wrappers/fragment.rs`) and
-add `pub mod fragment;` to the parent `mod.rs`. The binary in `cray/src/main.rs`
-calls `cray_layers::register()`, so nothing else is needed. Registering a
-duplicate name panics at startup.
+Create the module file (for example `layers/src/wrappers/fragment.rs`),
+add `pub mod fragment;` to the parent `mod.rs`, and put one
+`submit_layer!(...)` line at the top of the module. The binary in
+`cray/src/main.rs` calls `cray_layers::register()`, so nothing else is
+needed. Registering a duplicate name panics at startup, so keep
+names unique.
 
-The name in `r.add("...")` is the `type = "..."` value in TOML. Layer names
-are lowercase, hyphen-separated.
+The name in `submit_layer!("...")` is the `type = "..."` value in TOML.
+Layer names are lowercase, hyphen-separated.
 
 ## Understanding `Ports`
 
@@ -191,6 +204,7 @@ the right constant:
 | `Ports::WRAP` | `Stream` | `Stream` | Transforms one stream into another |
 | `Ports::ACCEPT` | `Stream` | `Streams` | Multiplexing: accepts requests on the stream and exposes them as separate streams |
 | `Ports::TERMINAL` | `Stream` | `Done` | Protocol handler — consumes the stream |
+| `Ports::INIT` | `Nothing` | `Nothing` | Setup-only layer: takes no stream, gives no stream — runs once per connection (e.g. to put values into `Cx`), then passes the input through with `Output::Skip` |
 
 Real layers:
 
@@ -212,6 +226,11 @@ Chain rules the engine enforces at startup:
   and exactly one of them is the terminal;
 - every outbound layer must give a single stream, so it can be used for
   dialing.
+- `INIT` layers are transparent to link validation: they are skipped when
+  checking the first layer, neighbor links and the last stream giver, so they
+  may appear anywhere in the list (including first). Their
+  `requires()`/`provides()` still participate in `Cx` validation, and at
+  runtime they must return `Output::Skip` with the input they received.
 
 ## Using `requires()`, `provides()` and `Cx`
 
@@ -444,7 +463,7 @@ Run the suite with `cargo test --workspace`, or one crate with
 
 ## Checklist for a new layer
 
-- code: one module under `layers/src/`, registered in `layers/src/lib.rs`
+- code: one module under `layers/src/`, self-registered with `submit_layer!`
 - tests in `layers/tests/`
 - a page in `docs/eng/` **and** `docs/ru/`
 - updated `README.md` / `README.ru.md`, if the layer changes the list of
