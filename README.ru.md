@@ -1,10 +1,25 @@
-# Cray
+<p align="center">
+  <img src="assets/cray.svg" alt="Cray" width="160">
+</p>
 
-[English](README.md) | Русский
+<h1 align="center">Cray</h1>
 
-[![CI](https://github.com/3Radiance/Cray/actions/workflows/ci.yml/badge.svg)](https://github.com/3Radiance/Cray/actions/workflows/ci.yml)
+<p align="center">
+  <b>Компонуемый прокси-движок на Rust.</b>
+</p>
 
-**Компонуемый прокси-движок на Rust.**
+<p align="center">
+  <a href="README.md">English</a> | Русский
+</p>
+
+<p align="center">
+  <a href="https://github.com/3Radiance/Cray/actions/workflows/ci.yml">
+    <img src="https://github.com/3Radiance/Cray/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later">
+  </a>
+</p>
 
 Cray собирает соединение из независимых слоёв, которые описываются в TOML-файле: источник соединений, любое число транспортов и протокол в конце. Транспорт и протокол ничего не знают друг о друге, поэтому новый протокол работает поверх любого транспорта, а новый транспорт несёт любой протокол.
 

@@ -1,10 +1,25 @@
-# Cray
+<p align="center">
+  <img src="assets/cray.svg" alt="Cray" width="160">
+</p>
 
-English | [Русский](README.ru.md)
+<h1 align="center">Cray</h1>
 
-[![CI](https://github.com/3Radiance/Cray/actions/workflows/ci.yml/badge.svg)](https://github.com/3Radiance/Cray/actions/workflows/ci.yml)
+<p align="center">
+  <b>A composable proxy engine written in Rust.</b>
+</p>
 
-**A composable proxy engine written in Rust.**
+<p align="center">
+  English | <a href="README.ru.md">Русский</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/3Radiance/Cray/actions/workflows/ci.yml">
+    <img src="https://github.com/3Radiance/Cray/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later">
+  </a>
+</p>
 
 Cray builds a connection out of independent layers declared in a TOML file: a connection source, any number of transports, and a protocol at the end. Transport and protocol know nothing about each other, so a new protocol works over every transport, and a new transport carries every protocol.
 
