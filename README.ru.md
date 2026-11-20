@@ -1,7 +1,3 @@
-<p align="left">
-  <img src="./cray.jpg" width="20%" alt="crays-logo" style="border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
-</p>
-
 # Cray
 
 [English](README.md) | Русский
