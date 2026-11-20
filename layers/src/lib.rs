@@ -1,4 +1,5 @@
-use cray_core::Registry;
+use cray_core::{Factory, Registry};
+use inventory;
 use serde::Deserialize;
 
 pub(crate) fn deserialize_from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -34,23 +35,29 @@ pub mod tun_tcp;
 pub mod unix;
 pub mod wrappers;
 
+pub struct LayerEntry {
+    pub name: &'static str,
+    pub factory: Factory,
+}
+
+inventory::collect!(LayerEntry);
+
+pub fn register_all(r: &mut Registry) {
+    for entry in inventory::iter::<LayerEntry> {
+        r.add(entry.name, entry.factory);
+    }
+}
+
+#[macro_export]
+macro_rules! submit_layer {
+    ($name:expr, $factory:expr) => {
+        $crate::inventory::submit!($crate::LayerEntry {
+            name: $name,
+            factory: $factory,
+        });
+    };
+}
+
 pub fn register(r: &mut Registry) {
-    r.add("tcp", tcp::build);
-    r.add("unix", unix::build);
-    r.add("fragment", wrappers::fragment::build);
-    r.add("jitter", wrappers::jitter::build);
-    r.add("http-proxy", proxy::http::build);
-    r.add("tls", transport::tls::build);
-    r.add("http2", transport::http2::build);
-    r.add("vless", protocol::vless::build);
-    r.add("pad", wrappers::pad::build);
-    r.add("auth", wrappers::auth::build);
-    r.add("xhttp2", transport::xhttp2::build);
-    r.add("pipe", protocol::pipe::build);
-    r.add("tun", tun::build);
-    r.add("tun-tcp", tun_tcp::build);
-    // r.add("xhttp", transport::xhttp::build);
-    // r.add("byedpi", wrappers::byedpi::build);
-    // r.add("direct", protocol::direct::build);
-    // r.add("split", wrappers::split::build);
+    register_all(r);
 }

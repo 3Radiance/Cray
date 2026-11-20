@@ -8,6 +8,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::net::TcpSocket;
 
+use crate::submit_layer;
+
+submit_layer!("tun-tcp", build);
+
 pub static PROTECT: Mutex<Option<Arc<dyn SocketProtect>>> = Mutex::new(None);
 
 pub fn set_protect<T: SocketProtect + 'static>(protect: T) {

@@ -32,6 +32,7 @@ tokio-util.workspace = true
 futures-util.workspace = true
 tokio-tun.workspace = true
 smoltcp.workspace = true
+inventory.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true

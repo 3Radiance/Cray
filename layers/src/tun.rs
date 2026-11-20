@@ -10,6 +10,10 @@ use std::sync::Mutex;
 use tokio_tun::TunBuilder;
 use tokio_tun::TunQueue;
 
+use crate::submit_layer;
+
+submit_layer!("tun", build);
+
 pub static TUN_FD: Mutex<Option<OwnedFd>> = Mutex::new(None);
 
 pub fn set_tun_fd(fd: OwnedFd) {

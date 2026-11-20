@@ -37,6 +37,7 @@ futures-util = { version = "0.3.34", features = ["sink", "std"] }
 tokio-tun = "0.23.0"
 smoltcp = "0.14.0"
 libc = "0.2"
+inventory = "0.3"
 
 
 cray-core = { path = "core" }

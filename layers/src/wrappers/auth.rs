@@ -8,6 +8,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::submit_layer;
+
+submit_layer!("auth", build);
+
 pub const HDR: usize = 32 + 2;
 const MAX_FRAME_BODY: usize = 16 * 1024;
 const SCRATCH: usize = 4096;

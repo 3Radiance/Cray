@@ -369,6 +369,7 @@ dependencies = [
  "http",
  "http2",
  "httparse",
+ "inventory",
  "libc",
  "rand",
  "serde",
@@ -727,6 +728,15 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]

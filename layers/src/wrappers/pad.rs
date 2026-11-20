@@ -11,6 +11,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::submit_layer;
+
+submit_layer!("pad", build);
+
 const HDR: usize = 2 + 2;
 const MAX_FRAME_BODY: usize = 16 * 1024;
 

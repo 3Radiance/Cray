@@ -16,6 +16,10 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_btls::SslStream;
 
+use crate::submit_layer;
+
+submit_layer!("tls", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TlsCfg {

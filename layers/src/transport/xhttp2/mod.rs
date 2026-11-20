@@ -16,6 +16,10 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use crate::submit_layer;
+
+submit_layer!("xhttp2", build);
+
 pub mod client;
 pub mod reorder;
 pub mod server;

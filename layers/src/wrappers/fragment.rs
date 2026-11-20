@@ -10,6 +10,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::submit_layer;
+
+submit_layer!("fragment", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FragmentCfg {

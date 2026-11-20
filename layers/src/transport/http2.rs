@@ -16,6 +16,10 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use crate::submit_layer;
+
+submit_layer!("http2", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct H2Cfg {

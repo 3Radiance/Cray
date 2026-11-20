@@ -7,6 +7,10 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::Duration;
 
+use crate::submit_layer;
+
+submit_layer!("http-proxy", build);
+
 pub const MAX_HEADER_BYTES: usize = 16 * 1024;
 
 #[derive(Deserialize)]

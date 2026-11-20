@@ -3,6 +3,10 @@ use cray_core::{
     BoxFuture, BuildCx, ConnectRequest, Cx, Dialer, Input, Key, Layer, Output, Ports, key,
 };
 
+use crate::submit_layer;
+
+submit_layer!("pipe", build);
+
 pub fn build(_params: &toml::Table, _bcx: &BuildCx) -> Result<Box<dyn Layer>> {
     Ok(Box::new(Pipe))
 }

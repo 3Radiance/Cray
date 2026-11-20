@@ -8,6 +8,10 @@ use cray_core::{
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::submit_layer;
+
+submit_layer!("vless", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VlessCfg {

@@ -7,6 +7,10 @@ use cray_core::{
 use serde::Deserialize;
 use std::time::Duration;
 
+use crate::submit_layer;
+
+submit_layer!("tcp", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TcpCfg {

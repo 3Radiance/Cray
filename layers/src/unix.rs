@@ -4,6 +4,10 @@ use cray_core::{BoxFuture, BoxedStream, BuildCx, Cx, Incoming, Input, Layer, Out
 use serde::Deserialize;
 use std::time::Duration;
 
+use crate::submit_layer;
+
+submit_layer!("unix", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UnixCfg {

@@ -11,6 +11,10 @@ use std::task::{Context, Poll, ready};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::{Duration, Instant, Sleep};
 
+use crate::submit_layer;
+
+submit_layer!("jitter", build);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JitterCfg {
